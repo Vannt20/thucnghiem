@@ -15,17 +15,30 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm, trange
 
-# Add Graph_models and old_Graph_models to path
-graph_models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Graph_models'))
-old_graph_models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'old_Graph_models'))
-if graph_models_dir not in sys.path:
-    sys.path.append(graph_models_dir)
-if old_graph_models_dir not in sys.path:
-    sys.path.append(old_graph_models_dir)
+# Add project paths to sys.path robustly for Google Colab / Linux / Windows / Notebooks
+current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+for p in [
+    current_dir,
+    os.path.join(current_dir, 'Graph_models'),
+    os.path.join(current_dir, 'old_Graph_models')
+]:
+    abs_p = os.path.abspath(p)
+    if abs_p not in sys.path:
+        sys.path.insert(0, abs_p)
 
-from gwn import GWNet
-from dcrnn import DCRNNModel
-from st_waveformer import STWaveFormer, StackingEnsemble
+try:
+    from Graph_models.gwn import GWNet
+    from Graph_models.dcrnn import DCRNNModel
+    from Graph_models.st_waveformer import STWaveFormer, StackingEnsemble
+except ImportError:
+    try:
+        from gwn import GWNet
+        from dcrnn import DCRNNModel
+        from st_waveformer import STWaveFormer, StackingEnsemble
+    except ImportError:
+        from old_Graph_models.gwn import GWNet
+        from old_Graph_models.dcrnn import DCRNNModel
+        from Graph_models.st_waveformer import STWaveFormer, StackingEnsemble
 
 # Define device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
