@@ -42,6 +42,7 @@ except ImportError:
 
 # Define device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_name = f"GPU: {torch.cuda.get_device_name(0)} (VRAM: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB)" if torch.cuda.is_available() else "CPU"
 
 # ==============================================================================
 # Model Definitions
@@ -270,6 +271,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
     history = []
 
     model.to(device)
+    print(f"  ⚡ Thiết bị: {device_name}", flush=True)
 
     for epoch in range(epochs):
         model.train()
@@ -505,7 +507,8 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
 
     print("=" * 80, flush=True)
     print(" CHẠY THỰC NGHIỆM ĐÁNH GIÁ MÔ HÌNH ST-WAVEFORMER VÀ STACKING ENSEMBLE ", flush=True)
-    print(f" Device: {device} | Datasets: {datasets} | Models: {models} | Epochs: {epochs}", flush=True)
+    print(f" 🚀 Thiết bị tính toán: {device_name}", flush=True)
+    print(f" 📊 Datasets: {datasets} | Models: {models} | Epochs: {epochs}", flush=True)
     print("=" * 80, flush=True)
 
     for ds in datasets:
