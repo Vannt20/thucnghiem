@@ -396,8 +396,7 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
     y_train_target = None
     y_test_target = None
 
-    for idx, b_name in enumerate(base_models, 1):
-        print(f"\n[{idx}/{len(base_models)}] Huấn luyện Base Model: {b_name}...", flush=True)
+    for b_name in base_models:
         train_loader, val_loader, test_loader, _, _ = prepare_dataset(
             dataset_name, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=b_name
         )
@@ -408,7 +407,6 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
         if not os.path.exists(best_path):
             train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=min(epochs, 50), patience=patience, logdir=b_logdir, model_name=b_name)
         else:
-            print(f"  -> Đã tìm thấy checkpoint có sẵn cho {b_name} tại {best_path}, bỏ qua huấn luyện lại.", flush=True)
             model.load_state_dict(torch.load(best_path, map_location=device))
 
         model.to(device)
@@ -419,8 +417,7 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
         tr_reals = []
         with torch.no_grad():
             for batch in train_loader:
-                x = batch['x'].to(device)
-                out = model(x)
+                out = model(batch['x'].to(device))
                 if out.dim() == 4: out = out[:, :, :, -1]
                 if out.dim() == 3 and out.size(1) == 1: out = out.squeeze(1)
                 tr_preds.append(out.cpu())
@@ -434,8 +431,7 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
         te_reals = []
         with torch.no_grad():
             for batch in test_loader:
-                x = batch['x'].to(device)
-                out = model(x)
+                out = model(batch['x'].to(device))
                 if out.dim() == 4: out = out[:, :, :, -1]
                 if out.dim() == 3 and out.size(1) == 1: out = out.squeeze(1)
                 te_preds.append(out.cpu())
@@ -445,7 +441,6 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
             y_test_target = torch.cat(te_reals, dim=0)
 
     # Train Meta-Learner
-    print(f"\n[+] Huấn luyện Stacking Meta-Learner trên các đặc trưng dự đoán...", flush=True)
     ensemble_meta = StackingEnsemble(input_dim=num_flows, num_models=len(base_models)).to(device)
     optimizer = optim.Adam(ensemble_meta.parameters(), lr=1e-3, weight_decay=1e-4)
     lossfn = nn.SmoothL1Loss(beta=0.01)
