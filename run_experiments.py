@@ -48,6 +48,7 @@ device_name = f"GPU: {torch.cuda.get_device_name(0)} (VRAM: {torch.cuda.get_devi
 # Model Definitions
 # ==============================================================================
 
+
 class LSTM_TM(nn.Module):
     def __init__(self, input_dim, hidden_dim=100, seq_len=24):
         super(LSTM_TM, self).__init__()
@@ -105,6 +106,7 @@ class BiGRU_TM(nn.Module):
 # ==============================================================================
 EPS = 1e-8
 
+
 def calc_metrics(preds, labels):
     preds = preds.float()
     labels = labels.float()
@@ -150,7 +152,6 @@ class TrafficDataset(Dataset):
         return {'x': x, 'y': y}
 
 
-
 def prepare_dataset(dataset_name, in_seq_len, out_seq_len=1, batch_size=64, model_name='lstm'):
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
     fpath = os.path.join(data_dir, f'{dataset_name}.csv')
@@ -161,19 +162,19 @@ def prepare_dataset(dataset_name, in_seq_len, out_seq_len=1, batch_size=64, mode
     df = df.set_index(['time'])
 
     total_steps = len(df)
-    train_size = int(total_steps * 0.7)
-    val_size = int(total_steps * 0.1)
+    train_size = int(total_steps * 0.7)                 # 70% Train
+    val_size = int(total_steps * 0.1)                   # 10% Validation
 
-    train_df = df.iloc[0:train_size]
-    val_df = df.iloc[train_size:train_size + val_size]
-    test_df = df.iloc[train_size + val_size:]
+    train_df = df.iloc[0:train_size]                    # 70% đầu tiên theo trục thời gian
+    val_df = df.iloc[train_size:train_size + val_size]  # 10% tiếp theo
+    test_df = df.iloc[train_size + val_size:]           # 20% cuối cùng (tương lai)
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     train_norm = scaler.fit_transform(train_df)
     val_norm = scaler.transform(val_df)
     test_norm = scaler.transform(test_df)
 
-    # Context features: Time-of-day (0-1) and Day-of-week (0-1)
+    # TOD và DOW chuẩn hóa: Time-of-day (0-1) and Day-of-week (0-1)
     time_idx = df.index
     tod = (time_idx.hour * 60.0 + time_idx.minute) / 1440.0
     dow = time_idx.dayofweek / 7.0
@@ -184,14 +185,16 @@ def prepare_dataset(dataset_name, in_seq_len, out_seq_len=1, batch_size=64, mode
 
     # Stack channels: [0]=traffic, [1]=tod, [2]=dow
     comb_train = np.stack([train_norm, tod_arr[0:train_size], dow_arr[0:train_size]], axis=-1).astype(np.float32)
-    comb_val = np.stack([val_norm, tod_arr[train_size:train_size + val_size], dow_arr[train_size:train_size + val_size]], axis=-1).astype(np.float32)
-    comb_test = np.stack([test_norm, tod_arr[train_size + val_size:], dow_arr[train_size + val_size:]], axis=-1).astype(np.float32)
+    comb_val = np.stack([val_norm, tod_arr[train_size:train_size + val_size],
+                        dow_arr[train_size:train_size + val_size]], axis=-1).astype(np.float32)
+    comb_test = np.stack([test_norm, tod_arr[train_size + val_size:],
+                         dow_arr[train_size + val_size:]], axis=-1).astype(np.float32)
 
     def create_sliding_window(arr, seq_in, seq_out):
         xs, ys = [], []
         for i in range(len(arr) - seq_in - seq_out + 1):
-            xs.append(arr[i : i + seq_in])
-            ys.append(arr[i + seq_in : i + seq_in + seq_out, :, 0]) # target is traffic volume
+            xs.append(arr[i: i + seq_in])
+            ys.append(arr[i + seq_in: i + seq_in + seq_out, :, 0])  # target is traffic volume
         return np.array(xs, dtype=np.float32), np.array(ys, dtype=np.float32)
 
     x_train, y_train = create_sliding_window(comb_train, in_seq_len, out_seq_len)
@@ -259,7 +262,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
         lossfn = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    
+
     if m_name in ['stwaveformer', 'stwaveformerensemble']:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     else:
@@ -347,7 +350,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             start_t = time.perf_counter()
             out = model(x)
             end_t = time.perf_counter()
-            inference_times.append((end_t - start_t) * 1000.0) # in ms
+            inference_times.append((end_t - start_t) * 1000.0)  # in ms
 
             if out.dim() == 4:
                 out = out[:, :, :, -1]
@@ -362,7 +365,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
     y_real = torch.cat(all_reals, dim=0)
 
     rse, mae, mse, mape, rmse = calc_metrics(y_hat, y_real)
-    avg_inference_time = np.mean(inference_times) # ms
+    avg_inference_time = np.mean(inference_times)  # ms
 
     test_metrics = {
         'mse': float(mse.item()),
@@ -401,11 +404,13 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
             dataset_name, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=b_name
         )
         model = build_model(b_name, dataset_name, seq_len, num_flows, num_nodes)
-        b_logdir = os.path.join(os.path.dirname(__file__), 'logs', f"{b_name.lower()}_data_{dataset_name}_seq_{seq_len}", "run_0")
+        b_logdir = os.path.join(os.path.dirname(__file__), 'logs',
+                                f"{b_name.lower()}_data_{dataset_name}_seq_{seq_len}", "run_0")
         best_path = os.path.join(b_logdir, 'best_model.pth')
 
         if not os.path.exists(best_path):
-            train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=min(epochs, 50), patience=patience, logdir=b_logdir, model_name=b_name)
+            train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=min(
+                epochs, 50), patience=patience, logdir=b_logdir, model_name=b_name)
         else:
             model.load_state_dict(torch.load(best_path, map_location=device))
 
@@ -418,8 +423,10 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
         with torch.no_grad():
             for batch in train_loader:
                 out = model(batch['x'].to(device))
-                if out.dim() == 4: out = out[:, :, :, -1]
-                if out.dim() == 3 and out.size(1) == 1: out = out.squeeze(1)
+                if out.dim() == 4:
+                    out = out[:, :, :, -1]
+                if out.dim() == 3 and out.size(1) == 1:
+                    out = out.squeeze(1)
                 tr_preds.append(out.cpu())
                 tr_reals.append(batch['y'].cpu())
         base_preds_train.append(torch.cat(tr_preds, dim=0))
@@ -432,8 +439,10 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
         with torch.no_grad():
             for batch in test_loader:
                 out = model(batch['x'].to(device))
-                if out.dim() == 4: out = out[:, :, :, -1]
-                if out.dim() == 3 and out.size(1) == 1: out = out.squeeze(1)
+                if out.dim() == 4:
+                    out = out[:, :, :, -1]
+                if out.dim() == 3 and out.size(1) == 1:
+                    out = out.squeeze(1)
                 te_preds.append(out.cpu())
                 te_reals.append(batch['y'].cpu())
         base_preds_test.append(torch.cat(te_preds, dim=0))
@@ -464,7 +473,7 @@ def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=
     with torch.no_grad():
         out_test = ensemble_meta(X_meta_test)
     end_t = time.perf_counter()
-    inf_time = ((end_t - start_t) * 1000.0) / len(y_meta_test) # per batch approx
+    inf_time = ((end_t - start_t) * 1000.0) / len(y_meta_test)  # per batch approx
 
     out_test = torch.clamp(out_test, min=0.0, max=1.0)
     rse, mae, mse, mape, rmse = calc_metrics(out_test.cpu(), y_test_target)
@@ -495,6 +504,7 @@ DATASET_CONFIGS = {
 
 MODELS_LIST = ['BiGRU', 'GWN', 'STWaveFormer', 'STWaveFormerEnsemble']
 
+
 def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, runs=1):
     if datasets is None:
         datasets = ['sdn', 'geant', 'abilene']
@@ -518,15 +528,17 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
         num_nodes = cfg['nodes']
         num_flows = cfg['flows']
 
-        print(f"\n==================== DATASET: {ds.upper()} (nodes={num_nodes}, flows={num_flows}, seq_len={seq_len}) ====================", flush=True)
+        print(
+            f"\n==================== DATASET: {ds.upper()} (nodes={num_nodes}, flows={num_flows}, seq_len={seq_len}) ====================", flush=True)
 
         for m_name in models:
             print(f"\n---> Đang thực nghiệm mô hình: {m_name} trên tập {ds.upper()}...", flush=True)
             run_metrics = []
 
             for run_id in range(runs):
-                logdir = os.path.join(os.path.dirname(__file__), 'logs', f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
-                
+                logdir = os.path.join(os.path.dirname(__file__), 'logs',
+                                      f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
+
                 if m_name.lower().replace('-', '') == 'stwaveformerensemble':
                     metrics = train_and_eval_ensemble(
                         ds, seq_len, num_flows, num_nodes, epochs=min(epochs, 50), patience=patience, logdir=logdir
@@ -540,7 +552,7 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                         model, train_loader, val_loader, test_loader,
                         epochs=epochs, patience=patience, logdir=logdir, model_name=m_name
                     )
-                
+
                 metrics['run'] = run_id
                 metrics['seq_len'] = seq_len
                 run_metrics.append(metrics)
@@ -568,7 +580,8 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                 'Inference Time (ms)': mean_time
             })
 
-            print(f"[*] Kết quả {m_name} trên {ds.upper()}: MSE={mean_mse*1000.0:.3f}e-3 | MAE={mean_mae*1000.0:.3f}e-3 | Time={mean_time:.3f} ms", flush=True)
+            print(
+                f"[*] Kết quả {m_name} trên {ds.upper()}: MSE={mean_mse*1000.0:.3f}e-3 | MAE={mean_mae*1000.0:.3f}e-3 | Time={mean_time:.3f} ms", flush=True)
 
     # Tổng hợp bảng kết quả danh gia mo hinh
     try:
@@ -593,7 +606,8 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Network Traffic Prediction & Model Evaluation")
     parser.add_argument('--dataset', type=str, default='all', choices=['all', 'sdn', 'geant', 'abilene'])
-    parser.add_argument('--model', type=str, default='all', choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveFormerEnsemble'])
+    parser.add_argument('--model', type=str, default='all',
+                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveFormerEnsemble'])
     parser.add_argument('--epochs', type=int, default=200, help='Max training epochs per model')
     parser.add_argument('--patience', type=int, default=30, help='Early stopping patience')
     parser.add_argument('--runs', type=int, default=1, help='Number of repeated runs')
