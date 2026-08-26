@@ -22,8 +22,7 @@ MODEL_MAP = {
     'gwn': 'GWN',
     'graphwavenet': 'GWN',
     'dcrnn': 'DCRNN',
-    'stwaveformer': 'ST-WaveFormer',
-    'stwaveformerensemble': 'ST-WaveFormer-Ensemble'
+    'stwaveformer': 'ST-WaveFormer'
 }
 
 DATASET_MAP = {
@@ -39,7 +38,7 @@ TARGET_SEQLEN = {
 }
 
 DATASET_ORDER = ['SDN', 'GEANT', 'ABILENE']
-MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'ST-WaveFormer-Ensemble', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
+MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
 
 
 def collect_results_from_dir(results_dir='results'):

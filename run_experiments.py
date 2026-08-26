@@ -5,6 +5,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 import time
+import gc
 import argparse
 import numpy as np
 import pandas as pd
@@ -29,16 +30,16 @@ for p in [
 try:
     from Graph_models.gwn import GWNet
     from Graph_models.dcrnn import DCRNNModel
-    from Graph_models.st_waveformer import STWaveFormer, StackingEnsemble
+    from Graph_models.st_waveformer import STWaveFormer
 except ImportError:
     try:
         from gwn import GWNet
         from dcrnn import DCRNNModel
-        from st_waveformer import STWaveFormer, StackingEnsemble
+        from st_waveformer import STWaveFormer
     except ImportError:
         from old_Graph_models.gwn import GWNet
         from old_Graph_models.dcrnn import DCRNNModel
-        from Graph_models.st_waveformer import STWaveFormer, StackingEnsemble
+        from Graph_models.st_waveformer import STWaveFormer
 
 # Define device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -137,7 +138,7 @@ class TrafficDataset(Dataset):
         x = self.x[idx]
         y = self.y[idx]
 
-        if self.model_name in ['stwaveformer', 'st-waveformer', 'stwaveformerensemble', 'st-waveformer-ensemble']:
+        if self.model_name in ['stwaveformer', 'st-waveformer']:
             # STWaveFormer handles multi-channel input [seq_len, num_flows, channels]
             pass
         else:
@@ -241,7 +242,7 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
         else:
             adj_mx = np.load(adj_path)
         return DCRNNModel(adj_mx=adj_mx, seq_len=in_seq_len, nodes=num_nodes, pre_len=1, device=device, num_rnn_layers=2, rnn_units=32)
-    elif m_name in ['stwaveformer', 'stwaveformerensemble']:
+    elif m_name in ['stwaveformer', 'st_waveformer']:
         return STWaveFormer(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
@@ -251,31 +252,29 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
 # Training & Testing Functions
 # ==============================================================================
 
-def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=200, patience=30, lr=1e-3, weight_decay=1e-4, logdir='logs', model_name='lstm'):
-    logdir = os.path.abspath(logdir)
+def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=200, patience=30, lr=1e-3, weight_decay=1e-4, logdir='logs', model_name='lstm', dataset_name='', run_id=0, total_runs=1):
     os.makedirs(logdir, exist_ok=True)
     m_name = model_name.lower().replace('-', '')
 
-    if m_name in ['stwaveformer', 'stwaveformerensemble']:
+    if m_name in ['stwaveformer', 'st_waveformer']:
         lossfn = nn.SmoothL1Loss(beta=0.01)
     else:
         lossfn = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-    if m_name in ['stwaveformer', 'stwaveformerensemble']:
+    if m_name in ['stwaveformer', 'st_waveformer']:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     else:
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda ep: (0.97) ** ep)
 
     best_val_loss = float('inf')
     best_model_path = os.path.join(logdir, 'best_model.pth')
-    os.makedirs(os.path.dirname(best_model_path), exist_ok=True)
     patience_counter = 0
     history = []
 
     model.to(device)
-    print(f"Thiết bị: {device_name}", flush=True)
+    print(f"Device: {device_name}", flush=True)
 
     for epoch in range(epochs):
         model.train()
@@ -313,7 +312,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
         mean_tr_loss = np.mean(train_losses)
         mean_val_loss = np.mean(val_losses)
 
-        history.append({'epoch': epoch, 'train_loss': mean_tr_loss, 'val_loss': mean_val_loss})
+        history.append({'epoch': epoch + 1, 'train_loss': mean_tr_loss, 'val_loss': mean_val_loss})
 
         if mean_val_loss < best_val_loss:
             best_val_loss = mean_val_loss
@@ -325,13 +324,16 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             patience_counter += 1
             saved_str = " "
 
-        print(f"  Epoch {epoch+1:03d}/{epochs} | Train Loss: {mean_tr_loss:.6f} | Val Loss: {mean_val_loss:.6f} (Best: {best_val_loss:.6f}){saved_str} | Patience: {patience_counter}/{patience}", flush=True)
+        # in ra màn hình history kèm thông tin run
+        run_info = f" | Run {run_id + 1}/{total_runs}" if total_runs > 1 else ""
+        tag = f"[{model_name}/{dataset_name.upper()}{run_info}]" if dataset_name else f"[{model_name}{run_info}]"
+        print(f"  {tag} Epoch {epoch+1:03d}/{epochs} | Train Loss: {mean_tr_loss:.6f} | Val Loss: {mean_val_loss:.6f} (Best: {best_val_loss:.6f}){saved_str} | Patience: {patience_counter}/{patience}", flush=True)
 
         if patience_counter >= patience:
             print(f"  --> Early stopping triggered at epoch {epoch+1}", flush=True)
             break
 
-    # Save history
+    # Save history at the end of training
     pd.DataFrame(history).to_csv(os.path.join(logdir, 'train_metrics.csv'), index=False)
 
     # Load best model for testing
@@ -382,113 +384,13 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
     np.save(os.path.join(logdir, 'y_real_data.npy'), y_real.numpy())
     np.save(os.path.join(logdir, 'y_pred_data.npy'), y_hat.numpy())
 
-    return test_metrics
+    # Dọn dẹp bộ nhớ RAM / VRAM
+    model.to('cpu')
+    del all_preds, all_reals, y_hat, y_real
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
 
-
-def train_and_eval_ensemble(dataset_name, seq_len, num_flows, num_nodes, epochs=50, patience=30, logdir='logs'):
-    """
-    Trains Stacking Ensemble meta-learner using base model predictions (BiGRU, GWN, STWaveFormer).
-    """
-    print("\n---> Đang huấn luyện Mô hình Học tập hợp (Stacking Ensemble)...", flush=True)
-    logdir = os.path.abspath(logdir)
-    os.makedirs(logdir, exist_ok=True)
-
-    base_models = ['BiGRU', 'GWN', 'STWaveFormer']
-    base_preds_train = []
-    base_preds_test = []
-    y_train_target = None
-    y_test_target = None
-
-    for b_name in base_models:
-        train_loader, val_loader, test_loader, _, _ = prepare_dataset(
-            dataset_name, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=b_name
-        )
-        model = build_model(b_name, dataset_name, seq_len, num_flows, num_nodes)
-        b_logdir = os.path.join(os.path.dirname(__file__), 'logs',
-                                f"{b_name.lower()}_data_{dataset_name}_seq_{seq_len}", "run_0")
-        best_path = os.path.join(b_logdir, 'best_model.pth')
-
-        if not os.path.exists(best_path):
-            train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=min(
-                epochs, 50), patience=patience, logdir=b_logdir, model_name=b_name)
-        else:
-            model.load_state_dict(torch.load(best_path, map_location=device))
-
-        model.to(device)
-        model.eval()
-
-        # Collect train preds
-        tr_preds = []
-        tr_reals = []
-        with torch.no_grad():
-            for batch in train_loader:
-                out = model(batch['x'].to(device))
-                if out.dim() == 4:
-                    out = out[:, :, :, -1]
-                if out.dim() == 3 and out.size(1) == 1:
-                    out = out.squeeze(1)
-                tr_preds.append(out.cpu())
-                tr_reals.append(batch['y'].cpu())
-        base_preds_train.append(torch.cat(tr_preds, dim=0))
-        if y_train_target is None:
-            y_train_target = torch.cat(tr_reals, dim=0)
-
-        # Collect test preds
-        te_preds = []
-        te_reals = []
-        with torch.no_grad():
-            for batch in test_loader:
-                out = model(batch['x'].to(device))
-                if out.dim() == 4:
-                    out = out[:, :, :, -1]
-                if out.dim() == 3 and out.size(1) == 1:
-                    out = out.squeeze(1)
-                te_preds.append(out.cpu())
-                te_reals.append(batch['y'].cpu())
-        base_preds_test.append(torch.cat(te_preds, dim=0))
-        if y_test_target is None:
-            y_test_target = torch.cat(te_reals, dim=0)
-
-    # Train Meta-Learner
-    ensemble_meta = StackingEnsemble(input_dim=num_flows, num_models=len(base_models)).to(device)
-    optimizer = optim.Adam(ensemble_meta.parameters(), lr=1e-3, weight_decay=1e-4)
-    lossfn = nn.SmoothL1Loss(beta=0.01)
-
-    X_meta_train = [p.to(device) for p in base_preds_train]
-    y_meta_train = y_train_target.to(device)
-    X_meta_test = [p.to(device) for p in base_preds_test]
-    y_meta_test = y_test_target.to(device)
-
-    for ep in range(epochs):
-        ensemble_meta.train()
-        optimizer.zero_grad()
-        out = ensemble_meta(X_meta_train)
-        loss = lossfn(out, y_meta_train)
-        loss.backward()
-        optimizer.step()
-
-    # Evaluation on Test set
-    ensemble_meta.eval()
-    start_t = time.perf_counter()
-    with torch.no_grad():
-        out_test = ensemble_meta(X_meta_test)
-    end_t = time.perf_counter()
-    inf_time = ((end_t - start_t) * 1000.0) / len(y_meta_test)  # per batch approx
-
-    out_test = torch.clamp(out_test, min=0.0, max=1.0)
-    rse, mae, mse, mape, rmse = calc_metrics(out_test.cpu(), y_test_target)
-
-    test_metrics = {
-        'mse': float(mse.item()),
-        'mae': float(mae.item()),
-        'rmse': float(rmse.item()),
-        'rse': float(rse.item()),
-        'mape': float(mape.item()),
-        'inference_time_ms': float(inf_time)
-    }
-
-    test_df = pd.DataFrame([test_metrics])
-    test_df.to_csv(os.path.join(logdir, 'test_metrics.csv'), index=False)
     return test_metrics
 
 
@@ -502,10 +404,10 @@ DATASET_CONFIGS = {
     'abilene': {'nodes': 12, 'flows': 144, 'seq_len': 24}
 }
 
-MODELS_LIST = ['BiGRU', 'GWN', 'STWaveFormer', 'STWaveFormerEnsemble']
+MODELS_LIST = ['BiGRU', 'GWN', 'STWaveFormer']
 
 
-def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, runs=1):
+def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, runs=1, skip_existing=False):
     if datasets is None:
         datasets = ['sdn', 'geant', 'abilene']
     if models is None:
@@ -517,9 +419,9 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
     summary_records = []
 
     print("=" * 80, flush=True)
-    print(" CHẠY THỰC NGHIỆM ĐÁNH GIÁ MÔ HÌNH ST-WAVEFORMER VÀ STACKING ENSEMBLE ", flush=True)
-    print(f"Thiết bị tính toán: {device_name}", flush=True)
-    print(f"Datasets: {datasets} | Models: {models} | Epochs: {epochs}", flush=True)
+    print(" VANNT NETWORK TRAFFIC PREDICTION (ST-WAVEFORMER)", flush=True)
+    print(f"Device: {device_name}", flush=True)
+    print(f"Datasets: {datasets} | Models: {models} | Epochs: {epochs} | Skip existing: {skip_existing}", flush=True)
     print("=" * 80, flush=True)
 
     for ds in datasets:
@@ -529,33 +431,55 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
         num_flows = cfg['flows']
 
         print(
-            f"\n==================== DATASET: {ds.upper()} (nodes={num_nodes}, flows={num_flows}, seq_len={seq_len}) ====================", flush=True)
+            f"\nDATASET: {ds.upper()} (nodes={num_nodes}, flows={num_flows}, seq_len={seq_len})", flush=True)
 
         for m_name in models:
-            print(f"\n---> Đang thực nghiệm mô hình: {m_name} trên tập {ds.upper()}...", flush=True)
             run_metrics = []
 
             for run_id in range(runs):
-                logdir = os.path.join(os.path.dirname(__file__), 'logs',
-                                      f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
+                logdir = os.path.join('logs', f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
+                test_metrics_path = os.path.join(logdir, 'test_metrics.csv')
 
-                if m_name.lower().replace('-', '') == 'stwaveformerensemble':
-                    metrics = train_and_eval_ensemble(
-                        ds, seq_len, num_flows, num_nodes, epochs=min(epochs, 50), patience=patience, logdir=logdir
-                    )
-                else:
-                    train_loader, val_loader, test_loader, scaler, _ = prepare_dataset(
-                        ds, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=m_name
-                    )
-                    model = build_model(m_name, ds, seq_len, num_flows, num_nodes)
-                    metrics = train_and_eval_model(
-                        model, train_loader, val_loader, test_loader,
-                        epochs=epochs, patience=patience, logdir=logdir, model_name=m_name
-                    )
+                # Kiểm tra cờ --skip_existing
+                if skip_existing and os.path.exists(test_metrics_path):
+                    try:
+                        prev_df = pd.read_csv(test_metrics_path)
+                        if not prev_df.empty:
+                            metrics = prev_df.iloc[0].to_dict()
+                            run_str = f" [Run {run_id+1}/{runs}]" if runs > 1 else ""
+                            print(f"\n[SKIP] Đã có kết quả: {m_name} trên {ds.upper()}{run_str} (Nạp từ {test_metrics_path})", flush=True)
+                            metrics['run'] = run_id
+                            metrics['seq_len'] = seq_len
+                            run_metrics.append(metrics)
+                            continue
+                    except Exception as e:
+                        print(f"[WARN] Lỗi đọc {test_metrics_path}, huấn luyện lại: {e}", flush=True)
+
+                run_str = f" [Run {run_id+1}/{runs}]" if runs > 1 else ""
+                print(f"\n---> Training: {m_name} on {ds.upper()} dataset{run_str}...", flush=True)
+
+                train_loader, val_loader, test_loader, scaler, _ = prepare_dataset(
+                    ds, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=m_name
+                )
+                model = build_model(m_name, ds, seq_len, num_flows, num_nodes)
+                metrics = train_and_eval_model(
+                    model, train_loader, val_loader, test_loader,
+                    epochs=epochs, patience=patience, logdir=logdir, model_name=m_name, dataset_name=ds,
+                    run_id=run_id, total_runs=runs
+                )
 
                 metrics['run'] = run_id
                 metrics['seq_len'] = seq_len
                 run_metrics.append(metrics)
+
+                # Dọn dẹp bộ nhớ sau mỗi lần chạy
+                if 'model' in locals():
+                    del model
+                if 'train_loader' in locals():
+                    del train_loader, val_loader, test_loader
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
 
             df_runs = pd.DataFrame(run_metrics)
             out_csv = os.path.join(results_dir, f"results_{m_name.replace('-', '')}_data_{ds}.csv")
@@ -607,10 +531,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Network Traffic Prediction & Model Evaluation")
     parser.add_argument('--dataset', type=str, default='all', choices=['all', 'sdn', 'geant', 'abilene'])
     parser.add_argument('--model', type=str, default='all',
-                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveFormerEnsemble'])
+                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer'])
     parser.add_argument('--epochs', type=int, default=200, help='Max training epochs per model')
     parser.add_argument('--patience', type=int, default=30, help='Early stopping patience')
     parser.add_argument('--runs', type=int, default=1, help='Number of repeated runs')
+    parser.add_argument('--skip_existing', action='store_true', help='Skip already completed runs (load test_metrics.csv)')
     parser.add_argument('--quick_check', action='store_true', help='Run 2 epochs for quick pipeline verification')
 
     args = parser.parse_args()
@@ -620,6 +545,6 @@ if __name__ == '__main__':
 
     if args.quick_check:
         print("=== CHẾ ĐỘ KIỂM TRA NHANH (QUICK CHECK) ===")
-        run_all_experiments(datasets=ds_list, models=m_list, epochs=2, patience=2, runs=1)
+        run_all_experiments(datasets=ds_list, models=m_list, epochs=2, patience=2, runs=args.runs, skip_existing=args.skip_existing)
     else:
-        run_all_experiments(datasets=ds_list, models=m_list, epochs=args.epochs, patience=args.patience, runs=args.runs)
+        run_all_experiments(datasets=ds_list, models=m_list, epochs=args.epochs, patience=args.patience, runs=args.runs, skip_existing=args.skip_existing)

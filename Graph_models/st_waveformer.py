@@ -259,23 +259,3 @@ class STWaveFormer(nn.Module):
         # 5. RevIN Denormalization
         out = self.revin(out_norm, mode='denorm')
         return out
-
-
-class StackingEnsemble(nn.Module):
-    """
-    Stacking Ensemble Meta-Learner: Combines predictions of BiGRU, GWN, and STWaveFormer.
-    Guarantees performance superior or equal to best individual model.
-    """
-    def __init__(self, input_dim: int, num_models=3):
-        super(StackingEnsemble, self).__init__()
-        self.meta_learner = nn.Sequential(
-            nn.Linear(input_dim * num_models, input_dim * 2),
-            nn.ReLU(),
-            nn.Linear(input_dim * 2, input_dim)
-        )
-
-    def forward(self, preds_list):
-        # preds_list: list of [batch, input_dim] tensors from base models
-        concat_preds = torch.cat(preds_list, dim=-1) # [batch, input_dim * num_models]
-        out = self.meta_learner(concat_preds)
-        return out
