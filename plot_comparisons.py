@@ -22,7 +22,9 @@ MODEL_MAP = {
     'gwn': 'GWN',
     'graphwavenet': 'GWN',
     'dcrnn': 'DCRNN',
-    'stwaveformer': 'ST-WaveFormer'
+    'stwaveformer': 'ST-WaveFormer',
+    'stwavenethybrid': 'ST-WaveNet-Hybrid',
+    'st_wavenet_hybrid': 'ST-WaveNet-Hybrid'
 }
 
 DATASET_MAP = {
@@ -38,7 +40,50 @@ TARGET_SEQLEN = {
 }
 
 DATASET_ORDER = ['SDN', 'GEANT', 'ABILENE']
-MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
+MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'ST-WaveNet-Hybrid', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
+
+
+def recover_results_from_logs(logs_dir='logs', results_dir='results'):
+    """
+    Tự động khôi phục toàn bộ các file results_*_data_*.csv từ thư mục logs/
+    nếu thư mục results/ bị xóa hoặc trống.
+    """
+    if not os.path.exists(logs_dir):
+        return
+    os.makedirs(results_dir, exist_ok=True)
+    log_subdirs = glob.glob(os.path.join(logs_dir, "*_data_*_seq_*"))
+    for ldir in log_subdirs:
+        base = os.path.basename(ldir)
+        m = re.match(r"^(?P<model>.+)_data_(?P<ds>[A-Za-z0-9]+)_seq_(?P<seq>\d+)$", base)
+        if not m:
+            continue
+        raw_m = m.group('model')
+        raw_ds = m.group('ds')
+        seq_len = int(m.group('seq'))
+        test_files = glob.glob(os.path.join(ldir, "run_*", "test_metrics.csv"))
+        if not test_files:
+            continue
+        run_records = []
+        for tf in sorted(test_files):
+            rm = re.search(r"run_(\d+)", tf)
+            run_id = int(rm.group(1)) if rm else 0
+            try:
+                tdf = pd.read_csv(tf)
+                if not tdf.empty:
+                    d = tdf.iloc[0].to_dict()
+                    d['run'] = run_id
+                    d['seq_len'] = seq_len
+                    run_records.append(d)
+            except Exception:
+                continue
+        if run_records:
+            df_reconstructed = pd.DataFrame(run_records)
+            # Chuẩn hóa tên mô hình để map đúng
+            model_clean = MODEL_MAP.get(raw_m.lower(), raw_m).replace('-', '')
+            out_name = f"results_{model_clean}_data_{raw_ds.lower()}.csv"
+            out_path = os.path.join(results_dir, out_name)
+            df_reconstructed.to_csv(out_path, index=False)
+            print(f"  -> Đã khôi phục {len(run_records)} runs vào: {out_path}")
 
 
 def collect_results_from_dir(results_dir='results'):
@@ -46,12 +91,17 @@ def collect_results_from_dir(results_dir='results'):
     Quét toàn bộ các file kết quả chi tiết của từng mô hình và tập dữ liệu trong thư mục results/
     (ví dụ: results_BiGRU_data_geant.csv, results_STWaveFormer_data_sdn.csv, ...)
     để tổng hợp thành một DataFrame hoàn chỉnh.
+    Tự động khôi phục từ logs/ nếu results/ bị xóa.
     """
     if not os.path.exists(results_dir):
-        print(f"Thư mục '{results_dir}' không tồn tại.")
-        return pd.DataFrame()
+        os.makedirs(results_dir, exist_ok=True)
 
     csv_files = glob.glob(os.path.join(results_dir, "results_*_data_*.csv"))
+    if not csv_files and os.path.exists('logs'):
+        print(f"Không tìm thấy file kết quả trong '{results_dir}'. Đang tự động khôi phục từ 'logs/'...")
+        recover_results_from_logs(logs_dir='logs', results_dir=results_dir)
+        csv_files = glob.glob(os.path.join(results_dir, "results_*_data_*.csv"))
+
     if not csv_files:
         print(f"Không tìm thấy file kết quả dạng results_*_data_*.csv nào trong '{results_dir}'.")
         return pd.DataFrame()

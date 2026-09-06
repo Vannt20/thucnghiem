@@ -16,13 +16,9 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm, trange
 
-# Add project paths to sys.path robustly for Google Colab / Linux / Windows / Notebooks
+# Cấu hình sys.path tương thích đa nền tảng (Colab, Linux, Windows, Notebooks)
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-for p in [
-    current_dir,
-    os.path.join(current_dir, 'Graph_models'),
-    os.path.join(current_dir, 'old_Graph_models')
-]:
+for p in [current_dir, os.path.join(current_dir, 'Graph_models')]:
     abs_p = os.path.abspath(p)
     if abs_p not in sys.path:
         sys.path.insert(0, abs_p)
@@ -31,15 +27,12 @@ try:
     from Graph_models.gwn import GWNet
     from Graph_models.dcrnn import DCRNNModel
     from Graph_models.st_waveformer import STWaveFormer
+    from Graph_models.st_wavenet_hybrid import STWaveNetHybrid
 except ImportError:
-    try:
-        from gwn import GWNet
-        from dcrnn import DCRNNModel
-        from st_waveformer import STWaveFormer
-    except ImportError:
-        from old_Graph_models.gwn import GWNet
-        from old_Graph_models.dcrnn import DCRNNModel
-        from Graph_models.st_waveformer import STWaveFormer
+    from gwn import GWNet
+    from dcrnn import DCRNNModel
+    from st_waveformer import STWaveFormer
+    from st_wavenet_hybrid import STWaveNetHybrid
 
 # Define device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -138,8 +131,8 @@ class TrafficDataset(Dataset):
         x = self.x[idx]
         y = self.y[idx]
 
-        if self.model_name in ['stwaveformer', 'st-waveformer']:
-            # STWaveFormer handles multi-channel input [seq_len, num_flows, channels]
+        if self.model_name in ['stwaveformer', 'st-waveformer', 'stwavenethybrid', 'st-wavenet-hybrid', 'sthybrid']:
+            # STWaveFormer & STWaveNetHybrid handle multi-channel input [seq_len, num_flows, channels]
             pass
         else:
             if x.dim() == 3:
@@ -244,6 +237,8 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
         return DCRNNModel(adj_mx=adj_mx, seq_len=in_seq_len, nodes=num_nodes, pre_len=1, device=device, num_rnn_layers=2, rnn_units=32)
     elif m_name in ['stwaveformer', 'st_waveformer']:
         return STWaveFormer(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
+    elif m_name in ['stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'st_hybridnet']:
+        return STWaveNetHybrid(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
 
@@ -256,14 +251,14 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
     os.makedirs(logdir, exist_ok=True)
     m_name = model_name.lower().replace('-', '')
 
-    if m_name in ['stwaveformer', 'st_waveformer']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid']:
         lossfn = nn.SmoothL1Loss(beta=0.01)
     else:
         lossfn = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-    if m_name in ['stwaveformer', 'st_waveformer']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid']:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     else:
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda ep: (0.97) ** ep)
@@ -359,7 +354,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             if out.dim() == 3 and out.size(1) == 1:
                 out = out.squeeze(1)
 
-            out = torch.clamp(out, min=0.0, max=1.0)
+            out = torch.clamp(out, min=0.0)
             all_preds.append(out.cpu())
             all_reals.append(y.cpu())
 
@@ -437,7 +432,8 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
             run_metrics = []
 
             for run_id in range(runs):
-                logdir = os.path.join('logs', f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
+                logdir = os.path.join(
+                    'logs', f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
                 test_metrics_path = os.path.join(logdir, 'test_metrics.csv')
 
                 # Kiểm tra cờ --skip_existing
@@ -447,7 +443,8 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                         if not prev_df.empty:
                             metrics = prev_df.iloc[0].to_dict()
                             run_str = f" [Run {run_id+1}/{runs}]" if runs > 1 else ""
-                            print(f"\n[SKIP] Đã có kết quả: {m_name} trên {ds.upper()}{run_str} (Nạp từ {test_metrics_path})", flush=True)
+                            print(
+                                f"\n[SKIP] Đã có kết quả: {m_name} trên {ds.upper()}{run_str} (Nạp từ {test_metrics_path})", flush=True)
                             metrics['run'] = run_id
                             metrics['seq_len'] = seq_len
                             run_metrics.append(metrics)
@@ -531,11 +528,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Network Traffic Prediction & Model Evaluation")
     parser.add_argument('--dataset', type=str, default='all', choices=['all', 'sdn', 'geant', 'abilene'])
     parser.add_argument('--model', type=str, default='all',
-                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer'])
+                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveNetHybrid'])
     parser.add_argument('--epochs', type=int, default=200, help='Max training epochs per model')
     parser.add_argument('--patience', type=int, default=30, help='Early stopping patience')
     parser.add_argument('--runs', type=int, default=1, help='Number of repeated runs')
-    parser.add_argument('--skip_existing', action='store_true', help='Skip already completed runs (load test_metrics.csv)')
+    parser.add_argument('--skip_existing', action='store_true',
+                        help='Skip already completed runs (load test_metrics.csv)')
     parser.add_argument('--quick_check', action='store_true', help='Run 2 epochs for quick pipeline verification')
 
     args = parser.parse_args()
@@ -545,6 +543,8 @@ if __name__ == '__main__':
 
     if args.quick_check:
         print("=== CHẾ ĐỘ KIỂM TRA NHANH (QUICK CHECK) ===")
-        run_all_experiments(datasets=ds_list, models=m_list, epochs=2, patience=2, runs=args.runs, skip_existing=args.skip_existing)
+        run_all_experiments(datasets=ds_list, models=m_list, epochs=2, patience=2,
+                            runs=args.runs, skip_existing=args.skip_existing)
     else:
-        run_all_experiments(datasets=ds_list, models=m_list, epochs=args.epochs, patience=args.patience, runs=args.runs, skip_existing=args.skip_existing)
+        run_all_experiments(datasets=ds_list, models=m_list, epochs=args.epochs,
+                            patience=args.patience, runs=args.runs, skip_existing=args.skip_existing)
