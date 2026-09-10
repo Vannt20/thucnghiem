@@ -28,11 +28,13 @@ try:
     from Graph_models.dcrnn import DCRNNModel
     from Graph_models.st_waveformer import STWaveFormer
     from Graph_models.st_wavenet_hybrid import STWaveNetHybrid
+    from Graph_models.local_filters import SpatialDilatedTCN
 except ImportError:
     from gwn import GWNet
     from dcrnn import DCRNNModel
     from st_waveformer import STWaveFormer
     from st_wavenet_hybrid import STWaveNetHybrid
+    from local_filters import SpatialDilatedTCN
 
 # Define device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -131,8 +133,8 @@ class TrafficDataset(Dataset):
         x = self.x[idx]
         y = self.y[idx]
 
-        if self.model_name in ['stwaveformer', 'st-waveformer', 'stwavenethybrid', 'st-wavenet-hybrid', 'sthybrid']:
-            # STWaveFormer & STWaveNetHybrid handle multi-channel input [seq_len, num_flows, channels]
+        if self.model_name in ['stwaveformer', 'st-waveformer', 'stwavenethybrid', 'st-wavenet-hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
+            # STWaveFormer, STWaveNetHybrid & SpatialDilatedTCN handle multi-channel input [seq_len, num_flows, channels]
             pass
         else:
             if x.dim() == 3:
@@ -154,6 +156,13 @@ def prepare_dataset(dataset_name, in_seq_len, out_seq_len=1, batch_size=64, mode
 
     df = pd.read_csv(fpath, parse_dates=['time'])
     df = df.set_index(['time'])
+
+    # Đảm bảo tính đơn điệu của chuỗi thời gian và khử trùng lặp (ví dụ 288 mốc trùng ở Abilene)
+    if not df.index.is_monotonic_increasing:
+        n_before = len(df)
+        df = df[~df.index.duplicated(keep='first')]
+        df = df.sort_index()
+        print(f"[{dataset_name.upper()}] Cảnh báo: Đã loại bỏ {n_before - len(df)} timestamp trùng lặp, đảm bảo tính đơn điệu.")
 
     total_steps = len(df)
     train_size = int(total_steps * 0.7)                 # 70% Train
@@ -239,6 +248,13 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
         return STWaveFormer(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
     elif m_name in ['stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'st_hybridnet']:
         return STWaveNetHybrid(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
+    elif m_name in ['localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
+        from features.spatial_features import build_physical_flow_adjacency
+        from features.feature_store import load_raw_dataset
+        df = load_raw_dataset(dataset_name)
+        cols = list(df.columns)
+        adj_flow = build_physical_flow_adjacency(dataset_name, cols)
+        return SpatialDilatedTCN(num_nodes=num_flows, hidden_dim=32, adj_mx=adj_flow)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
 
@@ -251,14 +267,14 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
     os.makedirs(logdir, exist_ok=True)
     m_name = model_name.lower().replace('-', '')
 
-    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
         lossfn = nn.SmoothL1Loss(beta=0.01)
     else:
         lossfn = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     else:
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda ep: (0.97) ** ep)
@@ -528,7 +544,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Network Traffic Prediction & Model Evaluation")
     parser.add_argument('--dataset', type=str, default='all', choices=['all', 'sdn', 'geant', 'abilene'])
     parser.add_argument('--model', type=str, default='all',
-                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveNetHybrid'])
+                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveNetHybrid', 'LocalSpatialTCN'])
     parser.add_argument('--epochs', type=int, default=200, help='Max training epochs per model')
     parser.add_argument('--patience', type=int, default=30, help='Early stopping patience')
     parser.add_argument('--runs', type=int, default=1, help='Number of repeated runs')
