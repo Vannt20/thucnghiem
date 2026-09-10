@@ -127,7 +127,6 @@ def train_gate_for_run(dataset_name, run_id=0, epochs=100, lr=1e-3, lambda_entro
         y_hat_test = (w_test[:, :, 0] * y_g_test +
                       w_test[:, :, 1] * y_l_test +
                       w_test[:, :, 2] * y_m_test)
-        y_hat_test = torch.clamp(y_hat_test, min=0.0)
     t_inf_1 = time.perf_counter()
 
     num_test_batches = int(np.ceil(len(ctx_test) / 64))

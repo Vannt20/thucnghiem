@@ -98,9 +98,22 @@ class BiGRU_TM(nn.Module):
 
 
 # ==============================================================================
-# Metric Calculations
+# Metric Calculations & Seed Control
 # ==============================================================================
 EPS = 1e-8
+SEEDS = [42, 43, 44, 45, 46]
+
+
+def set_seed(seed: int):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def calc_metrics(preds, labels):
@@ -110,8 +123,16 @@ def calc_metrics(preds, labels):
     mae = torch.mean(torch.abs(preds - labels))
     mse = torch.mean((preds - labels) ** 2)
     rmse = torch.sqrt(mse)
-    mape = torch.mean(torch.abs((preds - labels) / (labels + EPS)))
-    return rse, mae, mse, mape, rmse
+    # WAPE & sMAPE triệt tiêu hiện tượng chia cho số cận 0
+    wape = torch.sum(torch.abs(preds - labels)) / (torch.sum(torch.abs(labels)) + EPS)
+    smape = torch.mean(2.0 * torch.abs(preds - labels) / (torch.abs(preds) + torch.abs(labels) + EPS)) * 100.0
+    # Masked MAPE loại trừ các mẫu cận 0
+    mask = torch.abs(labels) > 1e-4
+    if torch.any(mask):
+        mape = torch.mean(torch.abs((preds[mask] - labels[mask]) / labels[mask]))
+    else:
+        mape = torch.tensor(0.0, device=preds.device, dtype=preds.dtype)
+    return rse, mae, mse, mape, rmse, wape, smape
 
 
 # ==============================================================================
@@ -212,7 +233,7 @@ def prepare_dataset(dataset_name, in_seq_len, out_seq_len=1, batch_size=64, mode
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    return train_loader, val_loader, test_loader, scaler, num_flows
+    return train_loader, val_loader, test_loader, scaler, num_flows, list(df.columns)
 
 
 # ==============================================================================
@@ -253,8 +274,8 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
         from features.feature_store import load_raw_dataset
         df = load_raw_dataset(dataset_name)
         cols = list(df.columns)
-        adj_flow = build_physical_flow_adjacency(dataset_name, cols)
-        return SpatialDilatedTCN(num_nodes=num_flows, hidden_dim=32, adj_mx=adj_flow)
+        adj_flow = build_physical_flow_adjacency(dataset_name, cols, top_k=16)
+        return SpatialDilatedTCN(num_nodes=num_flows, hidden_dim=64, adj_mx=adj_flow)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
 
@@ -263,7 +284,7 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
 # Training & Testing Functions
 # ==============================================================================
 
-def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=200, patience=30, lr=1e-3, weight_decay=1e-4, logdir='logs', model_name='lstm', dataset_name='', run_id=0, total_runs=1):
+def train_and_eval_model(model, train_loader, val_loader, test_loader, scaler=None, columns=None, epochs=200, patience=30, lr=1e-3, weight_decay=1e-4, logdir='logs', model_name='lstm', dataset_name='', run_id=0, total_runs=1, seed=42):
     os.makedirs(logdir, exist_ok=True)
     m_name = model_name.lower().replace('-', '')
 
@@ -304,6 +325,7 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             optimizer.step()
             train_losses.append(loss.item())
 
+        current_lr = optimizer.param_groups[0]['lr']
         scheduler.step()
 
         # Validation
@@ -323,7 +345,13 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
         mean_tr_loss = np.mean(train_losses)
         mean_val_loss = np.mean(val_losses)
 
-        history.append({'epoch': epoch + 1, 'train_loss': mean_tr_loss, 'val_loss': mean_val_loss})
+        history.append({
+            'epoch': epoch + 1,
+            'seed': seed,
+            'lr': current_lr,
+            'train_loss': mean_tr_loss,
+            'val_loss': mean_val_loss
+        })
 
         if mean_val_loss < best_val_loss:
             best_val_loss = mean_val_loss
@@ -336,9 +364,9 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             saved_str = " "
 
         # in ra màn hình history kèm thông tin run
-        run_info = f" | Run {run_id + 1}/{total_runs}" if total_runs > 1 else ""
+        run_info = f" | Run {run_id + 1}/{total_runs} (Seed: {seed})" if total_runs > 1 else f" (Seed: {seed})"
         tag = f"[{model_name}/{dataset_name.upper()}{run_info}]" if dataset_name else f"[{model_name}{run_info}]"
-        print(f"  {tag} Epoch {epoch+1:03d}/{epochs} | Train Loss: {mean_tr_loss:.6f} | Val Loss: {mean_val_loss:.6f} (Best: {best_val_loss:.6f}){saved_str} | Patience: {patience_counter}/{patience}", flush=True)
+        print(f"  {tag} Epoch {epoch+1:03d}/{epochs} | LR: {current_lr:.6f} | Train Loss: {mean_tr_loss:.6f} | Val Loss: {mean_val_loss:.6f} (Best: {best_val_loss:.6f}){saved_str} | Patience: {patience_counter}/{patience}", flush=True)
 
         if patience_counter >= patience:
             print(f"  --> Early stopping triggered at epoch {epoch+1}", flush=True)
@@ -370,30 +398,74 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, epochs=20
             if out.dim() == 3 and out.size(1) == 1:
                 out = out.squeeze(1)
 
-            out = torch.clamp(out, min=0.0)
+            # NOTE: Bỏ clamp trong không gian normalized
             all_preds.append(out.cpu())
             all_reals.append(y.cpu())
 
     y_hat = torch.cat(all_preds, dim=0)
     y_real = torch.cat(all_reals, dim=0)
 
-    rse, mae, mse, mape, rmse = calc_metrics(y_hat, y_real)
+    rse, mae, mse, mape, rmse, wape, smape = calc_metrics(y_hat, y_real)
     avg_inference_time = np.mean(inference_times)  # ms
 
+    # Đánh giá trên thang đo Raw sau inverse_transform
+    y_hat_np = y_hat.numpy()
+    y_real_np = y_real.numpy()
+    if scaler is not None:
+        y_hat_raw = scaler.inverse_transform(y_hat_np)
+        y_real_raw = scaler.inverse_transform(y_real_np)
+    else:
+        y_hat_raw = y_hat_np.copy()
+        y_real_raw = y_real_np.copy()
+
+    # Chỉ clamp về >= 0 sau khi đã chuyển prediction về traffic raw thực tế
+    y_hat_raw = np.clip(y_hat_raw, a_min=0.0, a_max=None)
+    y_real_raw = np.clip(y_real_raw, a_min=0.0, a_max=None)
+
+    raw_mae = float(np.mean(np.abs(y_hat_raw - y_real_raw)))
+    raw_mse = float(np.mean((y_hat_raw - y_real_raw) ** 2))
+    raw_rmse = float(np.sqrt(raw_mse))
+    raw_wape = float(np.sum(np.abs(y_hat_raw - y_real_raw)) / (np.sum(np.abs(y_real_raw)) + EPS))
+    raw_smape = float(np.mean(2.0 * np.abs(y_hat_raw - y_real_raw) / (np.abs(y_hat_raw) + np.abs(y_real_raw) + EPS)) * 100.0)
+
     test_metrics = {
+        'seed': seed,
+        'lr': lr,
         'mse': float(mse.item()),
         'mae': float(mae.item()),
         'rmse': float(rmse.item()),
         'rse': float(rse.item()),
         'mape': float(mape.item()),
+        'wape': float(wape.item()),
+        'smape': float(smape.item()),
+        'raw_mae': raw_mae,
+        'raw_rmse': raw_rmse,
+        'raw_wape': raw_wape,
+        'raw_smape': raw_smape,
         'inference_time_ms': float(avg_inference_time)
     }
+
+    # Giữ riêng flow OD_10-8 trong báo cáo như một trường hợp Distribution Shift
+    if columns is not None:
+        od_10_8_idx = None
+        for idx, col in enumerate(columns):
+            if '10-8' in str(col) or '10_8' in str(col):
+                od_10_8_idx = idx
+                break
+        if od_10_8_idx is not None:
+            f_pred = y_hat_raw[:, od_10_8_idx]
+            f_real = y_real_raw[:, od_10_8_idx]
+            test_metrics['od_10_8_mae_raw'] = float(np.mean(np.abs(f_pred - f_real)))
+            test_metrics['od_10_8_rmse_raw'] = float(np.sqrt(np.mean((f_pred - f_real) ** 2)))
+            test_metrics['od_10_8_wape_raw'] = float(np.sum(np.abs(f_pred - f_real)) / (np.sum(np.abs(f_real)) + EPS))
 
     # Save test logs
     test_df = pd.DataFrame([test_metrics])
     test_df.to_csv(os.path.join(logdir, 'test_metrics.csv'), index=False)
-    np.save(os.path.join(logdir, 'y_real_data.npy'), y_real.numpy())
-    np.save(os.path.join(logdir, 'y_pred_data.npy'), y_hat.numpy())
+    np.save(os.path.join(logdir, 'y_real_data.npy'), y_real_np)
+    np.save(os.path.join(logdir, 'y_pred_data.npy'), y_hat_np)
+    np.save(os.path.join(logdir, 'y_real_data_raw.npy'), y_real_raw)
+    np.save(os.path.join(logdir, 'y_pred_data_raw.npy'), y_hat_raw)
 
     # Dọn dẹp bộ nhớ RAM / VRAM
     model.to('cpu')
@@ -448,6 +520,9 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
             run_metrics = []
 
             for run_id in range(runs):
+                seed = SEEDS[run_id % len(SEEDS)]
+                set_seed(seed)
+
                 logdir = os.path.join(
                     'logs', f"{m_name.lower().replace('-','')}_data_{ds}_seq_{seq_len}", f"run_{run_id}")
                 test_metrics_path = os.path.join(logdir, 'test_metrics.csv')
@@ -458,7 +533,7 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                         prev_df = pd.read_csv(test_metrics_path)
                         if not prev_df.empty:
                             metrics = prev_df.iloc[0].to_dict()
-                            run_str = f" [Run {run_id+1}/{runs}]" if runs > 1 else ""
+                            run_str = f" [Run {run_id+1}/{runs} | Seed: {seed}]" if runs > 1 else f" [Seed: {seed}]"
                             print(
                                 f"\n[SKIP] Đã có kết quả: {m_name} trên {ds.upper()}{run_str} (Nạp từ {test_metrics_path})", flush=True)
                             metrics['run'] = run_id
@@ -468,17 +543,17 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                     except Exception as e:
                         print(f"[WARN] Lỗi đọc {test_metrics_path}, huấn luyện lại: {e}", flush=True)
 
-                run_str = f" [Run {run_id+1}/{runs}]" if runs > 1 else ""
+                run_str = f" [Run {run_id+1}/{runs} | Seed: {seed}]" if runs > 1 else f" [Seed: {seed}]"
                 print(f"\n---> Training: {m_name} on {ds.upper()} dataset{run_str}...", flush=True)
 
-                train_loader, val_loader, test_loader, scaler, _ = prepare_dataset(
+                train_loader, val_loader, test_loader, scaler, _, columns = prepare_dataset(
                     ds, in_seq_len=seq_len, out_seq_len=1, batch_size=64, model_name=m_name
                 )
                 model = build_model(m_name, ds, seq_len, num_flows, num_nodes)
                 metrics = train_and_eval_model(
-                    model, train_loader, val_loader, test_loader,
+                    model, train_loader, val_loader, test_loader, scaler=scaler, columns=columns,
                     epochs=epochs, patience=patience, logdir=logdir, model_name=m_name, dataset_name=ds,
-                    run_id=run_id, total_runs=runs
+                    run_id=run_id, total_runs=runs, seed=seed
                 )
 
                 metrics['run'] = run_id
@@ -503,9 +578,13 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
             mean_rmse = df_runs['rmse'].mean()
             mean_rse = df_runs['rse'].mean()
             mean_mape = df_runs['mape'].mean()
+            mean_wape = df_runs['wape'].mean() if 'wape' in df_runs else 0.0
+            mean_raw_mae = df_runs['raw_mae'].mean() if 'raw_mae' in df_runs else mean_mae
+            mean_raw_rmse = df_runs['raw_rmse'].mean() if 'raw_rmse' in df_runs else mean_rmse
+            mean_raw_wape = df_runs['raw_wape'].mean() if 'raw_wape' in df_runs else 0.0
             mean_time = df_runs['inference_time_ms'].mean()
 
-            summary_records.append({
+            record = {
                 'Dataset': ds.upper(),
                 'Model': m_name,
                 'Seq_Len': seq_len,
@@ -513,12 +592,18 @@ def run_all_experiments(datasets=None, models=None, epochs=200, patience=30, run
                 'MAE (x10^-3)': mean_mae * 1000.0,
                 'RMSE': mean_rmse,
                 'RSE': mean_rse,
-                'MAPE': mean_mape,
+                'WAPE (%)': mean_wape * 100.0,
+                'Raw MAE': mean_raw_mae,
+                'Raw RMSE': mean_raw_rmse,
+                'Raw WAPE (%)': mean_raw_wape * 100.0,
                 'Inference Time (ms)': mean_time
-            })
+            }
+            if 'od_10_8_mae_raw' in df_runs:
+                record['OD_10-8 Raw MAE'] = df_runs['od_10_8_mae_raw'].mean()
+            summary_records.append(record)
 
             print(
-                f"[*] Kết quả {m_name} trên {ds.upper()}: MSE={mean_mse*1000.0:.3f}e-3 | MAE={mean_mae*1000.0:.3f}e-3 | Time={mean_time:.3f} ms", flush=True)
+                f"[*] Kết quả {m_name} trên {ds.upper()}: MSE={mean_mse*1000.0:.3f}e-3 | MAE={mean_mae*1000.0:.3f}e-3 | Raw MAE={mean_raw_mae:.3f} | WAPE={mean_wape*100.0:.2f}% | Time={mean_time:.3f} ms", flush=True)
 
     # Tổng hợp bảng kết quả danh gia mo hinh
     try:

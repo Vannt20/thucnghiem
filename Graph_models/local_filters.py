@@ -12,13 +12,20 @@ except ImportError:
 class SpatialDilatedTCN(nn.Module):
     """
     Nhánh Cục bộ nâng cấp: Spatial-aware Dilated TCN.
-    Khắc phục triệt để 2 nhược điểm của Local TCN cũ:
-    1. Bổ sung liên kết không gian đồ thị (Spatial Graph Interaction) thông qua ma trận kề thích ứng A.
-    2. Tích hợp RevIN Normalization & Denormalization: Đầu vào và đầu ra đều chuẩn hóa đồng nhất
-       về thang đo MinMax [0, 1] (Scale Alignment).
-    3. Bộ lọc tích chập giãn nở đa tỷ lệ (d=1, 2, 4) làm mượt nhiễu cao tần và dập tắt gai xung đột biến trên SDN.
+    Tối ưu hóa toàn diện theo 4 nguyên lý khoa học:
+    1. Trích xuất đặc trưng thời gian tuần hoàn liên tục (Continuous Temporal Features):
+       - Tích hợp sin/cos(Time-of-day) và sin/cos(Day-of-week) triệt tiêu gián đoạn biên.
+    2. Bộ lọc tích chập giãn nở đa tỷ lệ (Multi-Scale Dilated TCN d=1, 2, 4) trích xuất vi động lực ngắn hạn.
+    3. Trao đổi không gian Topology-Masked Adaptive Adjacency:
+       - Ma trận kề thích ứng học được được ràng buộc chặt chẽ bởi Topology vật lý cục bộ (Top-k sparse),
+         ngăn chặn triệt để hiện tượng rò rỉ liên kết toàn cục (Global Bleed / Over-smoothing).
+    4. Cơ chế Residual Last-Value Skip Connection:
+       - Dự đoán độ lệch Delta y so với bước thời gian trước x_{t-1}, giúp mô hình hội tụ nhanh và ổn định.
+       - Tầng dự báo Delta là Linear thuần túy (không bọc ReLU) để hỗ trợ cả biến động tăng và giảm.
+    5. Tích hợp RevIN (Reversible Instance Normalization):
+       - Chuẩn hóa chống trôi dạt phân phối (covariate shift) và giải chuẩn hóa đồng bộ.
     """
-    def __init__(self, num_nodes: int, hidden_dim=32, emb_dim=10, dropout=0.1, adj_mx=None):
+    def __init__(self, num_nodes: int, hidden_dim=64, emb_dim=10, dropout=0.1, adj_mx=None):
         super(SpatialDilatedTCN, self).__init__()
         self.num_nodes = num_nodes
         self.hidden_dim = hidden_dim
@@ -26,12 +33,15 @@ class SpatialDilatedTCN(nn.Module):
         # 1. RevIN Normalization layer
         self.revin = RevIN(num_features=num_nodes, affine=True)
 
-        # 2. Multi-scale Dilated Temporal Convolutions (d=1, 2, 4)
-        self.conv_d1 = nn.Conv1d(1, hidden_dim, kernel_size=3, padding=1, dilation=1)
-        self.conv_d2 = nn.Conv1d(1, hidden_dim, kernel_size=3, padding=2, dilation=2)
-        self.conv_d4 = nn.Conv1d(1, hidden_dim, kernel_size=3, padding=4, dilation=4)
+        # 2. Input Projection: 1 traffic channel + 4 temporal channels (tod_sin, tod_cos, dow_sin, dow_cos) = 5 channels
+        self.in_proj = nn.Conv1d(5, hidden_dim, kernel_size=1)
 
-        # 3. Spatial Graph Interaction (Topology Awareness)
+        # 3. Multi-scale Dilated Temporal Convolutions (d=1, 2, 4)
+        self.conv_d1 = nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=1, dilation=1)
+        self.conv_d2 = nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=2, dilation=2)
+        self.conv_d4 = nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=4, dilation=4)
+
+        # 4. Spatial Graph Interaction (Topology-Masked Awareness)
         self.node_emb1 = nn.Parameter(torch.randn(num_nodes, emb_dim))
         self.node_emb2 = nn.Parameter(torch.randn(num_nodes, emb_dim))
         
@@ -47,54 +57,82 @@ class SpatialDilatedTCN(nn.Module):
             nn.Linear(hidden_dim * 2, hidden_dim)
         )
 
-        # 4. Output Projection Head
+        # 5. Output Delta Projection Head (Linear thuần túy ở lớp cuối - KHÔNG bọc ReLU)
         self.out_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1)
         )
+        # Zero-Init cho tầng cuối: tại Epoch 0, delta = 0 giúp mô hình bắt đầu ngay
+        # từ baseline tự thân hoàn hảo (Persistence) mà không bị nhiễu ngẫu nhiên
+        nn.init.zeros_(self.out_head[-1].weight)
+        nn.init.zeros_(self.out_head[-1].bias)
 
     def forward(self, x):
         # x: [B, T, N, C] hoặc [B, T, N]
         if x.dim() == 4:
             x_val = x[:, :, :, 0] # [B, T, N]
+            has_time = (x.size(-1) >= 3)
         else:
             x_val = x
+            has_time = False
 
         B, T, N = x_val.shape
 
-        # B1. Chuẩn hóa chống trôi dạt RevIN
+        # B1. Chuẩn hóa chống trôi dạt RevIN cho kênh lưu lượng
         x_norm = self.revin(x_val, mode='norm') # [B, T, N]
 
-        # B2. Multi-scale Dilated Convolutions theo trục thời gian cho từng luồng
-        # Chuyển đổi thành [B * N, 1, T]
-        x_in = x_norm.permute(0, 2, 1).contiguous().view(B * N, 1, T)
+        # B2. Chuẩn bị đặc trưng thời gian (TOD/DOW)
+        if has_time:
+            tod = x[:, :, :, 1] # [B, T, N]
+            dow = x[:, :, :, 2] # [B, T, N]
+            tod_sin = torch.sin(2.0 * math.pi * tod)
+            tod_cos = torch.cos(2.0 * math.pi * tod)
+            dow_sin = torch.sin(2.0 * math.pi * dow)
+            dow_cos = torch.cos(2.0 * math.pi * dow)
+            x_feat = torch.stack([x_norm, tod_sin, tod_cos, dow_sin, dow_cos], dim=-1) # [B, T, N, 5]
+        else:
+            zeros = torch.zeros(B, T, N, 4, device=x.device, dtype=x.dtype)
+            x_feat = torch.cat([x_norm.unsqueeze(-1), zeros], dim=-1) # [B, T, N, 5]
 
-        c1 = F.gelu(self.conv_d1(x_in)) # [B * N, H, T]
-        c2 = F.gelu(self.conv_d2(x_in)) # [B * N, H, T]
-        c4 = F.gelu(self.conv_d4(x_in)) # [B * N, H, T]
+        # B3. Chiếu đầu vào và Multi-scale Dilated Convolutions
+        # Chuyển đổi thành [B * N, 5, T] để trích xuất vi biến động độc lập cho từng luồng
+        x_in = x_feat.permute(0, 2, 3, 1).contiguous().view(B * N, 5, T)
+        h_in = F.gelu(self.in_proj(x_in)) # [B * N, H, T]
+
+        c1 = F.gelu(self.conv_d1(h_in))   # [B * N, H, T]
+        c2 = F.gelu(self.conv_d2(h_in))   # [B * N, H, T]
+        c4 = F.gelu(self.conv_d4(h_in))   # [B * N, H, T]
 
         c_cat = torch.cat([c1, c2, c4], dim=1) # [B * N, 3*H, T]
         c_last = c_cat[:, :, -1]               # [B * N, 3*H]
         c_feat = c_last.view(B, N, 3 * self.hidden_dim) # [B, N, 3*H]
 
-        # B3. Spatial Graph Interaction (Trao đổi thông tin không gian giữa các luồng)
-        # Ma trận kề thích ứng học được từ node embeddings
+        # B4. Spatial Graph Interaction (Topology-Masked Adaptive Adjacency)
         A_adapt = F.softmax(F.relu(torch.mm(self.node_emb1, self.node_emb2.T)), dim=-1) # [N, N]
         if self.static_adj is not None:
-            A = 0.5 * A_adapt + 0.5 * self.static_adj
+            # Topology Masking: Ràng buộc thích ứng trong phạm vi lân cận vật lý Top-k
+            topo_mask = (self.static_adj > 0).float()
+            A_adapt_masked = A_adapt * topo_mask
+            A_adapt_norm = A_adapt_masked / (A_adapt_masked.sum(dim=-1, keepdim=True) + 1e-8)
+            A = 0.5 * A_adapt_norm + 0.5 * self.static_adj
         else:
             A = A_adapt
 
-        # Lan truyền không gian: [B, N, 3*H] -> [B, N, H]
+        # Lan truyền không gian cục bộ: [B, N, 3*H] -> [B, N, H]
         h_local = self.spatial_proj(c_feat) # [B, N, H]
         h_spatial = torch.matmul(A, h_local) # [B, N, H]
         h_combined = h_local + h_spatial     # Residual connection
 
-        # B4. Dự đoán đầu ra
-        out_norm = self.out_head(h_combined).squeeze(-1) # [B, N]
+        # B5. Dự đoán độ lệch Delta y (Linear head)
+        delta_norm = self.out_head(h_combined).squeeze(-1) # [B, N]
 
-        # B5. Giải chuẩn hóa RevIN khôi phục về thang đo MinMax [0, 1]
+        # B6. Residual Last-Value Skip Connection: y_{t} = x_{t-1} + Delta y
+        last_val = x_norm[:, -1, :] # [B, N]
+        out_norm = last_val + delta_norm # [B, N]
+
+        # B7. Giải chuẩn hóa RevIN khôi phục về thang đo MinMax [0, 1]
         out = self.revin(out_norm, mode='denorm')
         return out
 
@@ -148,7 +186,7 @@ def load_local_branch(ds_key: str, seq_len: int, run_id: int, num_flows: int, ad
     ]
     for ckpt in candidate_paths:
         if os.path.exists(ckpt):
-            model = SpatialDilatedTCN(num_nodes=num_flows, hidden_dim=32, adj_mx=adj_flow)
+            model = SpatialDilatedTCN(num_nodes=num_flows, hidden_dim=64, adj_mx=adj_flow)
             with open(ckpt, 'rb') as f:
                 model.load_state_dict(torch.load(f, map_location=device))
             model.to(device)

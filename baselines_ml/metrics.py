@@ -8,7 +8,7 @@ EPS = 1e-8
 def calc_metrics_numpy(preds, labels):
     """
     Tính các chỉ số đánh giá bằng NumPy:
-    - MSE, MAE, RMSE, RSE, MAPE
+    - MSE, MAE, RMSE, RSE, MAPE (masked), WAPE, sMAPE
     """
     preds = np.asarray(preds, dtype=np.float64)
     labels = np.asarray(labels, dtype=np.float64)
@@ -20,14 +20,27 @@ def calc_metrics_numpy(preds, labels):
     denom_rse = np.sum((labels - np.mean(labels)) ** 2) + EPS
     rse = np.sum((preds - labels) ** 2) / denom_rse
     
-    mape = np.mean(np.abs((preds - labels) / (labels + EPS)))
+    # WAPE (Weighted Absolute Percentage Error) - Chuẩn mực chống nổ mẫu số khi traffic rỗi
+    wape = np.sum(np.abs(preds - labels)) / (np.sum(np.abs(labels)) + EPS)
+    
+    # sMAPE (Symmetric Mean Absolute Percentage Error)
+    smape = np.mean(2.0 * np.abs(preds - labels) / (np.abs(preds) + np.abs(labels) + EPS)) * 100.0
+
+    # Masked MAPE cho các giá trị nhãn đủ lớn để tránh chia cho số cận 0
+    mask = np.abs(labels) > 1e-4
+    if np.any(mask):
+        mape = np.mean(np.abs((preds[mask] - labels[mask]) / labels[mask]))
+    else:
+        mape = 0.0
     
     return {
         'mse': float(mse),
         'mae': float(mae),
         'rmse': float(rmse),
         'rse': float(rse),
-        'mape': float(mape)
+        'mape': float(mape),
+        'wape': float(wape),
+        'smape': float(smape)
     }
 
 

@@ -152,7 +152,7 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
             for (bx,) in val_loader:
                 out = global_model(bx.to(device))
                 preds_glob_val.append(out.cpu())
-        y_global_val = torch.clamp(torch.cat(preds_glob_val, dim=0), min=0.0)
+        y_global_val = torch.cat(preds_glob_val, dim=0)
 
         # Suy diễn Test cho Global
         if not quick_check and os.path.exists(y_pred_global_test_file):
@@ -170,7 +170,7 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
                 for (bx,) in test_loader:
                     out = global_model(bx.to(device))
                     preds_glob_te.append(out.cpu())
-            y_global_test = torch.clamp(torch.cat(preds_glob_te, dim=0), min=0.0)
+            y_global_test = torch.cat(preds_glob_te, dim=0)
 
         # -------------------------------------------------------------
         # B. NHÁNH LOCAL: SpatialDilatedTCN / STWaveNetHybrid Local
@@ -194,7 +194,7 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
             for (bx,) in val_loader:
                 out = local_model(bx.to(device))
                 preds_loc_val.append(out.cpu())
-        y_local_val = torch.clamp(torch.cat(preds_loc_val, dim=0), min=0.0)
+        y_local_val = torch.cat(preds_loc_val, dim=0)
 
         test_loader = DataLoader(TensorDataset(x_test_win), batch_size=64, shuffle=False)
         preds_loc_te = []
@@ -202,7 +202,7 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
             for (bx,) in test_loader:
                 out = local_model(bx.to(device))
                 preds_loc_te.append(out.cpu())
-        y_local_test = torch.clamp(torch.cat(preds_loc_te, dim=0), min=0.0)
+        y_local_test = torch.cat(preds_loc_te, dim=0)
 
         # -------------------------------------------------------------
         # C. NHÁNH ML: Champion GBDT Model

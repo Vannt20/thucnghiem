@@ -24,7 +24,10 @@ MODEL_MAP = {
     'dcrnn': 'DCRNN',
     'stwaveformer': 'ST-WaveFormer',
     'stwavenethybrid': 'ST-WaveNet-Hybrid',
-    'st_wavenet_hybrid': 'ST-WaveNet-Hybrid'
+    'st_wavenet_hybrid': 'ST-WaveNet-Hybrid',
+    'localspatialtcn': 'LocalSpatialTCN',
+    'local_spatial_tcn': 'LocalSpatialTCN',
+    'spatialdilatedtcn': 'LocalSpatialTCN'
 }
 
 DATASET_MAP = {
@@ -40,7 +43,7 @@ TARGET_SEQLEN = {
 }
 
 DATASET_ORDER = ['SDN', 'GEANT', 'ABILENE']
-MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'ST-WaveNet-Hybrid', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
+MODEL_ORDER = ['BiGRU', 'GWN', 'ST-WaveFormer', 'ST-WaveNet-Hybrid', 'LocalSpatialTCN', 'LSTM', 'BiLSTM', 'GRU', 'DCRNN']
 
 
 def recover_results_from_logs(logs_dir='logs', results_dir='results'):
