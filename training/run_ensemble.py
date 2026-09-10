@@ -24,13 +24,17 @@ from training.precompute_cache import run_precompute
 from training.train_gate_stacking import train_all_gates
 
 
-def run_full_pipeline(datasets=None, models='all', runs=5, quick_check=False, skip_existing=False, train_local=False):
+def run_full_pipeline(datasets=None, models='all', runs=5, epochs=100, patience=20, quick_check=False, skip_existing=False, train_local=False):
     if datasets is None or 'all' in datasets:
         datasets = ['sdn', 'geant', 'abilene']
 
+    actual_epochs = 2 if quick_check else epochs
+    actual_patience = 2 if quick_check else patience
+
     print("=" * 90)
     print(" KHỞI ĐỘNG QUY TRÌNH THỰC NGHIỆM TOÀN DIỆN: ST-ADAPTIVE-ENSEMBLE")
-    print(f" Datasets: {datasets} | Models: {models} | Runs: {runs} | Quick Check: {quick_check} | Skip Existing: {skip_existing} | Train Local: {train_local}")
+    print(f" Datasets: {datasets} | Models: {models} | Runs: {runs} | Epochs: {actual_epochs} | Patience: {actual_patience}")
+    print(f" Quick Check: {quick_check} | Skip Existing: {skip_existing} | Train Local: {train_local}")
     print("=" * 90)
 
     # -------------------------------------------------------------
@@ -43,8 +47,8 @@ def run_full_pipeline(datasets=None, models='all', runs=5, quick_check=False, sk
             run_all_experiments(
                 datasets=datasets,
                 models=['LocalSpatialTCN'],
-                epochs=2 if quick_check else 100,
-                patience=2 if quick_check else 20,
+                epochs=actual_epochs,
+                patience=actual_patience,
                 runs=runs,
                 skip_existing=skip_existing
             )
@@ -117,6 +121,8 @@ if __name__ == '__main__':
     parser.add_argument('--datasets', type=str, default='all', help="Comma-separated datasets hoặc 'all'")
     parser.add_argument('--models', type=str, default='all', help="Comma-separated models cho Module A hoặc 'all'")
     parser.add_argument('--runs', type=int, default=5, help="Số run lặp lại độc lập")
+    parser.add_argument('--epochs', type=int, default=100, help="Số epoch tối đa cho huấn luyện Deep Learning (mặc định: 100)")
+    parser.add_argument('--patience', type=int, default=20, help="Số epoch chờ Early Stopping (mặc định: 20)")
     parser.add_argument('--quick_check', action='store_true', help="Chạy kiểm tra nhanh toàn pipeline")
     parser.add_argument('--skip_existing', action='store_true', help="Bỏ qua các mô hình đã có kết quả")
     parser.add_argument('--train_local', action='store_true', help="Huấn luyện độc lập LocalSpatialTCN trên GPU trước khi Stacking")
@@ -129,6 +135,8 @@ if __name__ == '__main__':
         datasets=d_list,
         models=m_list,
         runs=args.runs,
+        epochs=args.epochs,
+        patience=args.patience,
         quick_check=args.quick_check,
         skip_existing=args.skip_existing,
         train_local=args.train_local
