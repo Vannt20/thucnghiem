@@ -31,7 +31,7 @@ from Graph_models.local_filters import SpatialDilatedTCN, load_local_branch
 from baselines_ml.lgbm_baseline import LGBMBaseline
 from baselines_ml.xgboost_baseline import XGBoostBaseline
 from baselines_ml.catboost_baseline import CatBoostBaseline
-from baselines_ml.tree_baselines import RandomForestBaseline, ExtraTreesBaseline
+from baselines_ml.tree_baselines import ExtraTreesBaseline
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -217,8 +217,11 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
             ml_inst = XGBoostBaseline(n_estimators=20 if quick_check else 1000, random_state=42 + run_id)
         elif champion_name == 'catboost':
             ml_inst = CatBoostBaseline(iterations=20 if quick_check else 1000, random_seed=42 + run_id)
+        elif champion_name == 'extra_trees':
+            ml_inst = ExtraTreesBaseline(n_estimators=10 if quick_check else 200, random_state=42 + run_id)
         else:
-            ml_inst = RandomForestBaseline(n_estimators=10 if quick_check else 200, random_state=42 + run_id)
+            # Mặc định an toàn: LightGBM (tốc độ cao nhất, tiết kiệm RAM)
+            ml_inst = LGBMBaseline(n_estimators=20 if quick_check else 1000, random_state=42 + run_id)
 
         if os.path.exists(ml_model_file):
             try:

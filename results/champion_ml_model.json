@@ -1,0 +1,26 @@
+{
+    "champion_model": "lightgbm",
+    "mean_rank": 1.0,
+    "avg_val_mse": 0.0019967078217457144,
+    "avg_inference_time_ms": 1.1903399998118402,
+    "ranking_table": [
+        {
+            "model": "lightgbm",
+            "mean_rank": 1.0,
+            "avg_val_mse": 0.0019967078217457144,
+            "avg_inference_time_ms": 1.1903399998118402
+        },
+        {
+            "model": "xgboost",
+            "mean_rank": 2.0,
+            "avg_val_mse": 0.0020753196634811263,
+            "avg_inference_time_ms": 0.8508800001436612
+        },
+        {
+            "model": "catboost",
+            "mean_rank": 3.0,
+            "avg_val_mse": 0.0022297861984528697,
+            "avg_inference_time_ms": 2.1058599999378202
+        }
+    ]
+}

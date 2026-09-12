@@ -27,7 +27,7 @@ from baselines_ml.metrics import calc_metrics_numpy, measure_inference_time
 from baselines_ml.lgbm_baseline import LGBMBaseline
 from baselines_ml.catboost_baseline import CatBoostBaseline
 from baselines_ml.xgboost_baseline import XGBoostBaseline
-from baselines_ml.tree_baselines import RandomForestBaseline, ExtraTreesBaseline
+from baselines_ml.tree_baselines import ExtraTreesBaseline
 from baselines_ml.model_selection import select_champion_ml_model
 
 
@@ -35,11 +35,11 @@ MODEL_CLASSES = {
     'lightgbm': LGBMBaseline,
     'catboost': CatBoostBaseline,
     'xgboost': XGBoostBaseline,
-    'random_forest': RandomForestBaseline,
     'extra_trees': ExtraTreesBaseline
 }
 
-ALL_MODELS = list(MODEL_CLASSES.keys())
+# 3 mô hình GBDT cốt lõi (Histogram-based, tối ưu hóa tốc độ và độ chính xác trên dữ liệu lớn)
+ALL_MODELS = ['lightgbm', 'catboost', 'xgboost']
 ALL_DATASETS = ['sdn', 'geant', 'abilene']
 
 
@@ -50,10 +50,10 @@ def get_model_instance(m_name, seed=42, quick_check=False):
             return cls(n_estimators=20, random_state=seed)
         elif m_name == 'catboost':
             return cls(iterations=20, random_seed=seed)
-        elif m_name in ['random_forest', 'extra_trees']:
+        elif m_name == 'extra_trees':
             return cls(n_estimators=10, max_depth=6, random_state=seed)
     else:
-        if m_name in ['lightgbm', 'xgboost', 'random_forest', 'extra_trees']:
+        if m_name in ['lightgbm', 'xgboost', 'extra_trees']:
             return cls(random_state=seed)
         elif m_name == 'catboost':
             return cls(random_seed=seed)
@@ -108,6 +108,7 @@ def run_ml_experiments(models=None, datasets=None, runs=5, quick_check=False, sk
                 run_dir = os.path.join(logs_dir, log_model_name, f"run_{run_id}")
                 os.makedirs(run_dir, exist_ok=True)
                 test_csv = os.path.join(run_dir, 'test_metrics.csv')
+                val_csv = os.path.join(run_dir, 'val_metrics.csv')
                 model_file = os.path.join(run_dir, 'model.bin')
 
                 if skip_existing and os.path.exists(test_csv):
@@ -118,9 +119,35 @@ def run_ml_experiments(models=None, datasets=None, runs=5, quick_check=False, sk
                             m_dict['run'] = run_id
                             run_metrics.append(m_dict)
                             print(f"  [SKIP] Đã có kết quả: {m_name} trên {ds.upper()} [Run {run_id+1}/{runs}]")
+
+                            # Tự động nạp hoặc tính nhanh chỉ số validation phục vụ Champion Selection
+                            if os.path.exists(val_csv):
+                                v_df = pd.read_csv(val_csv)
+                                val_records_for_champion.append({
+                                    'dataset': ds,
+                                    'model': m_key,
+                                    'run': run_id,
+                                    'val_mse': float(v_df.iloc[0]['mse']),
+                                    'inference_time_ms': float(v_df.iloc[0].get('inference_time_ms', 0.0))
+                                })
+                            elif os.path.exists(model_file):
+                                model_inst = get_model_instance(m_key, seed=seed, quick_check=quick_check)
+                                model_inst.load(model_file)
+                                val_preds = model_inst.predict(X_va)
+                                val_metrics = calc_metrics_numpy(val_preds, y_va)
+                                val_inf_time = measure_inference_time(lambda b: model_inst.predict(b), X_va, batch_size=64)
+                                val_metrics['inference_time_ms'] = val_inf_time
+                                pd.DataFrame([val_metrics]).to_csv(val_csv, index=False)
+                                val_records_for_champion.append({
+                                    'dataset': ds,
+                                    'model': m_key,
+                                    'run': run_id,
+                                    'val_mse': val_metrics['mse'],
+                                    'inference_time_ms': val_inf_time
+                                })
                             continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"    (Lỗi đọc skip cache: {e})")
 
                 print(f"  [*] Huấn luyện {m_name.upper()} trên {ds.upper()} [Run {run_id+1}/{runs}] (Seed {seed})...", flush=True)
                 t0 = time.time()
@@ -136,6 +163,7 @@ def run_ml_experiments(models=None, datasets=None, runs=5, quick_check=False, sk
                 val_preds = model_inst.predict(X_va)
                 val_metrics = calc_metrics_numpy(val_preds, y_va)
                 val_inf_time = measure_inference_time(lambda b: model_inst.predict(b), X_va, batch_size=64)
+                val_metrics['inference_time_ms'] = val_inf_time
 
                 val_records_for_champion.append({
                     'dataset': ds,
@@ -153,6 +181,7 @@ def run_ml_experiments(models=None, datasets=None, runs=5, quick_check=False, sk
 
                 # Lưu metrics và checkpoints
                 pd.DataFrame([test_metrics]).to_csv(test_csv, index=False)
+                pd.DataFrame([val_metrics]).to_csv(val_csv, index=False)
                 np.save(os.path.join(run_dir, 'y_pred_data.npy'), test_preds)
                 np.save(os.path.join(run_dir, 'y_real_data.npy'), y_te)
                 try:
@@ -178,7 +207,7 @@ def run_ml_experiments(models=None, datasets=None, runs=5, quick_check=False, sk
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run Traditional ML Baselines (Module A)")
-    parser.add_argument('--models', type=str, default='all', help="Comma-separated models: lightgbm,catboost,xgboost,random_forest,extra_trees hoặc 'all'")
+    parser.add_argument('--models', type=str, default='all', help="Comma-separated models: lightgbm,catboost,xgboost (mặc định 'all' gồm 3 GBDT). Tùy chọn: extra_trees")
     parser.add_argument('--datasets', type=str, default='all', help="Comma-separated datasets: sdn,geant,abilene hoặc 'all'")
     parser.add_argument('--runs', type=int, default=5, help="Số lần chạy độc lập (mặc định 5)")
     parser.add_argument('--quick_check', action='store_true', help="Chạy kiểm tra nhanh logic hệ thống")

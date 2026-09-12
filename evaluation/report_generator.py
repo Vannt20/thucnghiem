@@ -30,7 +30,6 @@ MODEL_NAME_MAP = {
     'lightgbm': 'LightGBM (Module A)',
     'catboost': 'CatBoost (Module A)',
     'xgboost': 'XGBoost (Module A)',
-    'random_forest': 'Random Forest (Module A)',
     'extra_trees': 'Extra Trees (Module A)',
     'bigru': 'BiGRU',
     'gwn': 'GWN',
