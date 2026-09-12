@@ -101,7 +101,7 @@ class BiGRU_TM(nn.Module):
 # Metric Calculations & Seed Control
 # ==============================================================================
 EPS = 1e-8
-SEEDS = [42, 43, 44, 45, 46]
+SEEDS = [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
 
 
 def set_seed(seed: int):

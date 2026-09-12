@@ -1,26 +1,26 @@
 {
-    "champion_model": "lightgbm",
-    "mean_rank": 1.0,
-    "avg_val_mse": 0.0019967078217457144,
-    "avg_inference_time_ms": 1.1903399998118402,
+    "champion_model": "xgboost",
+    "mean_rank": 6.2,
+    "avg_val_mse": 0.0032504142308194283,
+    "avg_inference_time_ms": 1.4593697600685118,
     "ranking_table": [
         {
-            "model": "lightgbm",
-            "mean_rank": 1.0,
-            "avg_val_mse": 0.0019967078217457144,
-            "avg_inference_time_ms": 1.1903399998118402
+            "model": "xgboost",
+            "mean_rank": 6.2,
+            "avg_val_mse": 0.0032504142308194283,
+            "avg_inference_time_ms": 1.4593697600685118
         },
         {
-            "model": "xgboost",
-            "mean_rank": 2.0,
-            "avg_val_mse": 0.0020753196634811263,
-            "avg_inference_time_ms": 0.8508800001436612
+            "model": "lightgbm",
+            "mean_rank": 7.933333333333334,
+            "avg_val_mse": 0.0031765024606061204,
+            "avg_inference_time_ms": 2.1151336400119667
         },
         {
             "model": "catboost",
-            "mean_rank": 3.0,
-            "avg_val_mse": 0.0022297861984528697,
-            "avg_inference_time_ms": 2.1058599999378202
+            "mean_rank": 9.866666666666667,
+            "avg_val_mse": 0.00418842896932787,
+            "avg_inference_time_ms": 1.1948552000194468
         }
     ]
 }
