@@ -27,13 +27,11 @@ try:
     from Graph_models.gwn import GWNet
     from Graph_models.dcrnn import DCRNNModel
     from Graph_models.st_waveformer import STWaveFormer
-    from Graph_models.st_wavenet_hybrid import STWaveNetHybrid
     from Graph_models.local_filters import SpatialDilatedTCN
 except ImportError:
     from gwn import GWNet
     from dcrnn import DCRNNModel
     from st_waveformer import STWaveFormer
-    from st_wavenet_hybrid import STWaveNetHybrid
     from local_filters import SpatialDilatedTCN
 
 # Define device
@@ -154,8 +152,8 @@ class TrafficDataset(Dataset):
         x = self.x[idx]
         y = self.y[idx]
 
-        if self.model_name in ['stwaveformer', 'st-waveformer', 'stwavenethybrid', 'st-wavenet-hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
-            # STWaveFormer, STWaveNetHybrid & SpatialDilatedTCN handle multi-channel input [seq_len, num_flows, channels]
+        if self.model_name in ['stwaveformer', 'st-waveformer', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
+            # STWaveFormer & SpatialDilatedTCN handle multi-channel input [seq_len, num_flows, channels]
             pass
         else:
             if x.dim() == 3:
@@ -267,8 +265,6 @@ def build_model(model_name, dataset_name, in_seq_len, num_flows, num_nodes):
         return DCRNNModel(adj_mx=adj_mx, seq_len=in_seq_len, nodes=num_nodes, pre_len=1, device=device, num_rnn_layers=2, rnn_units=32)
     elif m_name in ['stwaveformer', 'st_waveformer']:
         return STWaveFormer(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
-    elif m_name in ['stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'st_hybridnet']:
-        return STWaveNetHybrid(input_dim=num_flows, num_nodes=num_nodes, seq_len=in_seq_len, d_model=64, num_layers=2)
     elif m_name in ['localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
         from features.spatial_features import build_physical_flow_adjacency
         from features.feature_store import load_raw_dataset
@@ -288,14 +284,14 @@ def train_and_eval_model(model, train_loader, val_loader, test_loader, scaler=No
     os.makedirs(logdir, exist_ok=True)
     m_name = model_name.lower().replace('-', '')
 
-    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
         lossfn = nn.SmoothL1Loss(beta=0.01)
     else:
         lossfn = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-    if m_name in ['stwaveformer', 'st_waveformer', 'stwavenethybrid', 'st_wavenet_hybrid', 'sthybrid', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
+    if m_name in ['stwaveformer', 'st_waveformer', 'localspatialtcn', 'local_spatial_tcn', 'spatialdilatedtcn']:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
     else:
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda ep: (0.97) ** ep)
@@ -629,7 +625,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Network Traffic Prediction & Model Evaluation")
     parser.add_argument('--dataset', type=str, default='all', choices=['all', 'sdn', 'geant', 'abilene'])
     parser.add_argument('--model', type=str, default='all',
-                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'STWaveNetHybrid', 'LocalSpatialTCN'])
+                        choices=['all', 'LSTM', 'BiLSTM', 'GRU', 'BiGRU', 'GWN', 'DCRNN', 'STWaveFormer', 'LocalSpatialTCN'])
     parser.add_argument('--epochs', type=int, default=200, help='Max training epochs per model')
     parser.add_argument('--patience', type=int, default=30, help='Early stopping patience')
     parser.add_argument('--runs', type=int, default=1, help='Number of repeated runs')

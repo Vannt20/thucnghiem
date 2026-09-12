@@ -6,6 +6,7 @@ import subprocess
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+
 def run_cmd(cmd, step_name):
     print(f"\n" + "="*80)
     print(f"[*] ĐANG THỰC HIỆN: {step_name}")
@@ -19,6 +20,7 @@ def run_cmd(cmd, step_name):
         sys.exit(ret.returncode)
     else:
         print(f"[✓] HOÀN TẤT: {step_name} trong {elapsed/60.0:.2f} phút.")
+
 
 def main():
     python_exe = sys.executable
@@ -55,6 +57,7 @@ def main():
     print("# TẤT CẢ 10 RUNS ĐÃ HOÀN TẤT THÀNH CÔNG VÀ ĐỒNG BỘ!")
     print("# Kết quả cập nhật tại: results/bang_tong_hop_luan_van.csv")
     print("#"*80)
+
 
 if __name__ == '__main__':
     main()

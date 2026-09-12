@@ -173,7 +173,7 @@ def precompute_dataset_cache(dataset_name, runs=5, champion_name=None, quick_che
             y_global_test = torch.cat(preds_glob_te, dim=0)
 
         # -------------------------------------------------------------
-        # B. NHÁNH LOCAL: SpatialDilatedTCN / STWaveNetHybrid Local
+        # B. NHÁNH LOCAL: SpatialDilatedTCN (LocalSpatialTCN)
         # -------------------------------------------------------------
         columns = meta['columns']
         adj_flow = build_physical_flow_adjacency(ds_key, columns)

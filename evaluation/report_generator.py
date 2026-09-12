@@ -24,7 +24,6 @@ for p in [parent_dir, current_dir]:
 
 MODEL_NAME_MAP = {
     'stwaveformer': 'ST-WaveFormer',
-    'stwavenethybrid': 'ST-WaveNet-Hybrid',
     'st_adaptive_ensemble': 'ST-Adaptive-Ensemble (Proposed)',
     'stadaptiveensemble': 'ST-Adaptive-Ensemble (Proposed)',
     'lightgbm': 'LightGBM (Module A)',

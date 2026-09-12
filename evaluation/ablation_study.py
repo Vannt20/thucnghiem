@@ -70,7 +70,7 @@ def evaluate_ablation_run(dataset_name, run_id=0):
     m_full.update({'config': 'full_3branch', 'dataset': ds_key.upper(), 'run': run_id})
     records.append(m_full)
 
-    # 2. no_ml_branch: Chỉ Global + Local (ST-WaveNet-Hybrid)
+    # 2. no_ml_branch: Chỉ Global + Local (loại bỏ hoàn toàn nhánh ML)
     # Tỷ lệ chuẩn hóa giữa 2 nhánh DL
     y_no_ml = 0.5 * y_g + 0.5 * y_l
     m_no_ml = calc_metrics_numpy(y_no_ml, y_real)
