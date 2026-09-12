@@ -9,14 +9,13 @@ class LGBMBaseline:
     LightGBM Regressor theo chiến lược multi_output: shared_model:
     - 1 model duy nhất cho toàn bộ N luồng OD.
     - flow_id ở cột 0 là native categorical feature.
-    - Hàm mất mát Huber với delta=0.01.
+    - Hàm mất mát L2 / Regression (MSE chuẩn mực tối ưu hồi quy lưu lượng).
     """
-    def __init__(self, objective='huber', huber_delta=0.01, num_leaves=31,
+    def __init__(self, objective='regression', num_leaves=31,
                  learning_rate=0.05, n_estimators=1000, early_stopping_rounds=30,
                  random_state=42, n_jobs=-1, **kwargs):
         self.params = {
             'objective': objective,
-            'alpha': huber_delta, # LightGBM dùng alpha làm delta cho huber loss
             'num_leaves': num_leaves,
             'learning_rate': learning_rate,
             'n_estimators': n_estimators,

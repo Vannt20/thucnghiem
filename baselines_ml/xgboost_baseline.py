@@ -9,15 +9,15 @@ class XGBoostBaseline:
     XGBoost Regressor theo chiến lược multi_output: shared_model:
     - 1 model duy nhất cho toàn bộ N luồng OD.
     - tree_method: hist (tăng tốc độ gấp 10-20 lần và tiết kiệm RAM).
-    - Objective: reg:pseudohubererror với huber_slope=0.01 (nhất quán với Smooth L1 Loss của DL).
+    - Objective: reg:squarederror (Squared Error / MSE chuẩn mực tối ưu hồi quy lưu lượng).
+    - flow_id ở cột 0 được phân chia theo ngưỡng số học (numerical split).
     """
-    def __init__(self, objective='reg:pseudohubererror', huber_slope=0.01,
+    def __init__(self, objective='reg:squarederror',
                  max_depth=6, learning_rate=0.05, n_estimators=1000,
                  subsample=0.8, colsample_bytree=0.8, early_stopping_rounds=30,
                  random_state=42, n_jobs=-1, **kwargs):
         self.params = {
             'objective': objective,
-            'huber_slope': huber_slope,
             'tree_method': 'hist',
             'max_depth': max_depth,
             'learning_rate': learning_rate,
@@ -26,7 +26,6 @@ class XGBoostBaseline:
             'colsample_bytree': colsample_bytree,
             'random_state': random_state,
             'n_jobs': n_jobs,
-            'enable_categorical': True,
             **kwargs
         }
         self.early_stopping_rounds = early_stopping_rounds
