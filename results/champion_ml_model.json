@@ -1,26 +1,14 @@
 {
     "champion_model": "xgboost",
-    "mean_rank": 11.766666666666667,
-    "avg_val_mse": 0.00318686885071897,
-    "avg_inference_time_ms": 1.5113187134041557,
+    "mean_rank": 5.5,
+    "avg_val_mse": 0.0009613264635370336,
+    "avg_inference_time_ms": 1.9537589601236505,
     "ranking_table": [
         {
             "model": "xgboost",
-            "mean_rank": 11.766666666666667,
-            "avg_val_mse": 0.00318686885071897,
-            "avg_inference_time_ms": 1.5113187134041557
-        },
-        {
-            "model": "lightgbm",
-            "mean_rank": 15.5,
-            "avg_val_mse": 0.0032173542240006635,
-            "avg_inference_time_ms": 1.931063893374206
-        },
-        {
-            "model": "catboost",
-            "mean_rank": 19.233333333333334,
-            "avg_val_mse": 0.004145163276641863,
-            "avg_inference_time_ms": 1.1970584467280787
+            "mean_rank": 5.5,
+            "avg_val_mse": 0.0009613264635370336,
+            "avg_inference_time_ms": 1.9537589601236505
         }
     ]
 }
