@@ -8,6 +8,7 @@ Agents/
 .reports/
 .draft/
 *.zip
+/.backup
 
 quytrinh/
 catboost_info/

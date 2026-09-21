@@ -279,10 +279,10 @@ tbl2_data = [
     ["Tập dữ liệu", "Chỉ số đánh giá", "Mô hình gốc (GWN SOTA)", "ST-Adaptive-Ensemble (10 runs)", "Chênh lệch (Δ)", "Tỷ lệ thay đổi (%)", "Đánh giá khoa học"],
     ["SDN", "MSE (x10^-3)", "7.936", "6.562 ± 0.211", "-1.374", "-17.31%", "Giảm sai số bình phương so với GWN"],
     ["SDN", "MAE (x10^-3)", "52.927", "47.268 ± 0.694", "-5.659", "-10.69%", "Cải thiện sai số tuyệt đối"],
-    ["GÉANT", "MSE (x10^-3)", "0.879", "0.796 ± 0.025", "-0.083", "-9.44%", "Đạt sai số thấp hơn kỷ lục gốc của GWN"],
+    ["GÉANT", "MSE (x10^-3)", "0.879", "0.796 ± 0.025", "-0.083", "-9.44%", "Đạt sai số thấp hơn kết quả công bố của GWN"],
     ["GÉANT", "MAE (x10^-3)", "5.954", "5.481 ± 0.054", "-0.473", "-7.94%", "Giảm sai số tuyệt đối"],
-    ["ABILENE", "MSE (x10^-3)", "6.220", "2.781 ± 0.993", "-3.439", "-55.29%", "Giảm trên một nửa sai số bình phương"],
-    ["ABILENE", "MAE (x10^-3)", "18.318", "21.286 ± 5.489", "+2.968", "+16.20%", "Chênh lệch nhỏ ở sai số tuyệt đối"]
+    ["ABILENE", "MSE (x10^-3)", "6.220", "2.731 ± 0.866", "-3.489", "-56.10%", "Giảm trên một nửa sai số bình phương"],
+    ["ABILENE", "MAE (x10^-3)", "18.318", "20.856 ± 4.649", "+2.538", "+13.86%", "Chênh lệch nhỏ ở sai số tuyệt đối"]
 ]
 t2 = doc.add_table(rows=len(tbl2_data), cols=len(tbl2_data[0]))
 t2.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -329,9 +329,9 @@ tbl3_data = [
     ["GÉANT", "BiGRU (Bài báo gốc)", "1", "1.244", "-", "11.559", "-", "0.42"],
     ["ABILENE", "ST-WaveFormer (Global)", "10", "2.219 ± 0.241", "[2.038, 2.401]", "17.177 ± 0.237", "0.0470 ± 0.0026", "3.24 ± 0.11"],
     ["ABILENE", "LocalSpatialTCN (Local)", "10", "2.361 ± 0.000", "[2.361, 2.362]", "17.859 ± 0.001", "0.0486 ± 0.0000", "1.52 ± 0.08"],
-    ["ABILENE", "ST-Adaptive-Ensemble (Đề xuất)", "10", "2.781 ± 0.993", "[2.032, 3.529]", "21.286 ± 5.489", "0.0520 ± 0.0088", "0.00 ± 0.00"],
+    ["ABILENE", "ST-Adaptive-Ensemble (Đề xuất)", "10", "2.731 ± 0.866", "[2.079, 3.384]", "20.856 ± 4.649", "0.0517 ± 0.0080", "0.00 ± 0.00"],
     ["ABILENE", "CatBoost (Module A)", "10", "2.756 ± 0.125", "[2.661, 2.850]", "19.918 ± 7.297", "0.0525 ± 0.0012", "1.26 ± 0.33"],
-    ["ABILENE", "XGBoost (Champion ML)", "10", "2.765 ± 0.012", "[2.756, 2.774]", "19.675 ± 6.604", "0.0526 ± 0.0001", "1.82 ± 0.41"],
+    ["ABILENE", "XGBoost (Champion ML)", "10", "2.764 ± 0.013", "[2.754, 2.773]", "17.470 ± 0.021", "0.0526 ± 0.0001", "1.96 ± 0.26"],
     ["ABILENE", "GWN (SOTA Bài báo gốc)", "1", "6.220", "-", "18.318", "-", "3.81"],
     ["ABILENE", "BiGRU (Bài báo gốc)", "1", "6.188", "-", "21.416", "-", "1.46"]
 ]
@@ -381,7 +381,7 @@ add_p(" Trên tập SDN, các mô hình Deep Learning đơn lẻ gặp hiện t�
 add_p(" Trên mạng Géant có chu kỳ tuần hoàn mượt mà 15 phút, cả ST-WaveFormer (0.801) và ST-Adaptive-Ensemble (0.796 +- 0.025) đều đạt sai số thấp hơn GWN gốc (0.879, tương ứng mức giảm 9.44% MSE và 7.94% MAE). Đáng chú ý, cơ chế Meta-Gating đóng vai trò như bộ điều hòa phương sai, giúp giảm độ lệch chuẩn từ 0.063 ở ST-WaveFormer xuống còn 0.025 ở Ensemble (giảm 60.3% phương sai khởi tạo).",
       bold_prefix="2. Tập dữ liệu GÉANT (Chu kỳ 15 phút, tính ổn định cao):")
 
-add_p(" Trên mạng Abilene, cơ chế Wavelet Multi-Head Attention của ST-WaveFormer phát huy hiệu quả trên chuỗi có liên kết không gian chặt, đạt MSE = 2.219 +- 0.241 (giảm 64.32% so với GWN gốc 6.220). ST-Adaptive-Ensemble đạt MSE = 2.781 +- 0.993, duy trì mức cải thiện trên 55% so với mô hình gốc.",
+add_p(" Trên mạng Abilene, cơ chế Wavelet Multi-Head Attention của ST-WaveFormer phát huy hiệu quả trên chuỗi có liên kết không gian chặt, đạt MSE = 2.219 +- 0.241 (giảm 64.32% so với GWN gốc 6.220). ST-Adaptive-Ensemble đạt MSE = 2.731 +- 0.866, duy trì mức cải thiện trên 56% so với mô hình gốc.",
       bold_prefix="3. Tập dữ liệu ABILENE (Chu kỳ 5 phút, tương quan không gian chặt):")
 
 
@@ -402,9 +402,9 @@ tbl4_data = [
     ["GÉANT", "Ensemble vs. LocalSpatialTCN", "MSE", "-6.8734", "7.28e-05", "Có (✓)", "Có (✓✓)", "Ensemble vượt trội có ý nghĩa thống kê cao"],
     ["GÉANT", "Ensemble vs. XGBoost", "MSE", "-14.1655", "1.85e-07", "Có (✓)", "Có (✓✓)", "Ensemble vượt trội có ý nghĩa thống kê cao"],
     ["GÉANT", "Ensemble vs. ST-WaveFormer", "MSE", "-0.2567", "0.8032", "Không", "Không", "Trung bình tương đương, Ensemble giảm 60% phương sai"],
-    ["ABILENE", "Ensemble vs. ST-WaveFormer", "MSE", "2.0744", "0.0679", "Không", "Không", "Khác biệt không có ý nghĩa thống kê ở alpha = 0.05"],
-    ["ABILENE", "Ensemble vs. LocalSpatialTCN", "MSE", "1.2665", "0.2371", "Không", "Không", "Khác biệt không có ý nghĩa thống kê"],
-    ["ABILENE", "Ensemble vs. XGBoost", "MSE", "0.0475", "0.9632", "Không", "Không", "Hai mô hình đạt độ chính xác tương đương"]
+    ["ABILENE", "Ensemble vs. ST-WaveFormer", "MSE", "2.2840", "0.0482", "Có (✓)", "Không", "ST-WaveFormer nhỉnh hơn về MSE ở mức alpha = 0.05"],
+    ["ABILENE", "Ensemble vs. LocalSpatialTCN", "MSE", "1.2822", "0.2318", "Không", "Không", "Khác biệt không có ý nghĩa thống kê"],
+    ["ABILENE", "Ensemble vs. XGBoost", "MSE", "-0.1113", "0.9138", "Không", "Không", "Hai mô hình đạt độ chính xác tương đương"]
 ]
 t4 = doc.add_table(rows=len(tbl4_data), cols=len(tbl4_data[0]))
 t4.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -448,10 +448,10 @@ tbl5_data = [
     ["GÉANT", "static_average", "Gộp trung bình tĩnh không học (w = 1/3)", "0.746 ± 0.014", "5.421", "0.0273", "-6.27% (Sai số duy trì mức thấp)"],
     ["GÉANT", "no_global_branch", "Loại bỏ Attention, chỉ dùng Local + ML", "0.749 ± 0.001", "5.549", "0.0274", "-5.94% (Sai số duy trì mức thấp)"],
     ["GÉANT", "no_ml_branch", "Loại bỏ ML, chỉ kết hợp Global + Local", "0.749 ± 0.003", "5.419", "0.0274", "-5.93% (Sai số duy trì mức thấp)"],
-    ["ABILENE", "full_3branch (Đề xuất)", "Đầy đủ 3 nhánh với Meta-Gating động", "2.781 ± 0.993", "21.286", "0.0520", "Mốc chuẩn (0.00%)"],
-    ["ABILENE", "static_average", "Gộp trung bình tĩnh không học (w = 1/3)", "2.568 ± 0.676", "20.862", "0.0503", "-7.64%"],
-    ["ABILENE", "no_global_branch", "Loại bỏ Attention, chỉ dùng Local + ML", "2.171 ± 0.328", "18.184", "0.0465", "-21.92%"],
-    ["ABILENE", "no_ml_branch", "Loại bỏ ML, chỉ kết hợp Global + Local", "2.942 ± 0.853", "22.974", "0.0537", "+5.81% (Thiếu ML làm tăng lỗi)"]
+    ["ABILENE", "full_3branch (Đề xuất)", "Đầy đủ 3 nhánh với Meta-Gating động", "2.731 ± 0.866", "20.856", "0.0517", "Mốc chuẩn (0.00%)"],
+    ["ABILENE", "static_average", "Gộp trung bình tĩnh không học (w = 1/3)", "2.471 ± 0.521", "20.168", "0.0494", "-9.52%"],
+    ["ABILENE", "no_global_branch", "Loại bỏ Attention, chỉ dùng Local + ML", "2.061 ± 0.004", "17.076", "0.0454", "-24.53%"],
+    ["ABILENE", "no_ml_branch", "Loại bỏ ML, chỉ kết hợp Global + Local", "2.942 ± 0.853", "22.974", "0.0537", "+7.73% (Thiếu ML làm tăng lỗi)"]
 ]
 t5 = doc.add_table(rows=len(tbl5_data), cols=len(tbl5_data[0]))
 t5.alignment = WD_TABLE_ALIGNMENT.CENTER
